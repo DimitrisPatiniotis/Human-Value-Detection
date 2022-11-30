@@ -12,6 +12,7 @@ class BERTDataset(Dataset):
         self.text = df.Text
         self.tokenizer = tokenizer
         # Bug Here
+        
         self.targets = df[target_cols].values
         
     def __len__(self):

@@ -4,6 +4,9 @@ import re
 import json
 from matplotlib import pyplot as plt
 from sklearn.model_selection import train_test_split
+import nltk
+from nltk.stem import PorterStemmer
+from nltk.tokenize import word_tokenize 
 
 def get_main_label_names(json_path):
     with open(json_path) as jsonFile:
@@ -37,9 +40,15 @@ def clean_text(text):
     text = text.strip(' ')
     return text
 
+
+
 def set_stance(stance):
     st = 0 if stance == 'against' else 1
     return st
+
+stemmer = PorterStemmer()
+def analytical_stem(txt):
+    return stemmer.stem(txt)
 
 class Loader():
 
@@ -49,6 +58,7 @@ class Loader():
         self.TL_LVL1_FILE_NAME = tl_lvl1_file_name
         self.DATA_PATH = data_base_path
         self.workingTableType = workingTableType
+        self.stemmer = PorterStemmer()
         self.label_names = None
         self.arguments = None
         self.labels = None
@@ -81,11 +91,17 @@ class Loader():
         self.workingTable['Text'] = self.workingTable['Text'].apply(clean_text)
         print(self.workingTable.head(5))
     
+    def tknz(self):
+        self.workingTable['Text'] = self.workingTable['Text'].apply(print, word_tokenize)
+    
+    def stem(self):
+        self.workingTable['Text'] = self.workingTable['Text'].apply(analytical_stem)
+    
     def train_test_validate_split(self):
         X, y = self.workingTable['Text'], self.workingTable[self.label_names]
         # 0.6/0.2/0.2
         self.x_train, self.x_test, self.y_train, self.y_test = train_test_split(X, y, test_size=0.2, random_state=1)
-        self.x_train, self.x_val, self.y_train, self.y_val = train_test_split(self.x_train, self.y_train, test_size=0.25, random_state=1)
+        # self.x_train, self.x_val, self.y_train, self.y_val = train_test_split(self.x_train, self.y_train, test_size=0.25, random_state=1)
     
     def split_to_train_val(self):
         self.workingTable = self.workingTable.sample(frac=1).reset_index(drop=True)
@@ -114,7 +130,7 @@ class Loader():
         plt.show()
     
     def get_target_cols(self):
-        return [col for col in self.workingTable.columns if col not in ['Argument ID', 'ID']]
+        return [col for col in self.workingTable.columns if col not in ['Argument ID', 'Text']]
 
 
 
