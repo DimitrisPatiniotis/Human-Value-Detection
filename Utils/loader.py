@@ -100,7 +100,7 @@ class Loader():
     def train_test_validate_split(self):
         X, y = self.workingTable['Text'], self.workingTable[self.label_names]
         # 0.6/0.2/0.2
-        self.x_train, self.x_test, self.y_train, self.y_test = train_test_split(X, y, test_size=0.2, random_state=1)
+        self.x_train, self.x_test, self.y_train, self.y_test = train_test_split(X, y, test_size=0.3, random_state=1)
         # self.x_train, self.x_val, self.y_train, self.y_val = train_test_split(self.x_train, self.y_train, test_size=0.25, random_state=1)
     
     def split_to_train_val(self):

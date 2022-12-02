@@ -7,6 +7,7 @@ from bert import *
 from loader import *
 from settings import *
 from ml_models import *
+from sklearn.svm import SVC
 
 def loss_fn(outputs, targets):
     return torch.nn.BCEWithLogitsLoss()(outputs, targets)
@@ -37,7 +38,7 @@ def main():
     dl.load()
     dl.stem()
     # dl.tknz()
-    run_logistic_regression(dl)
+    run_multioutput_clf(dl, clf=SVC())
 
     # dl.split_to_train_val()
     # tokenizer = AutoTokenizer.from_pretrained('roberta-base')

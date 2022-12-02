@@ -2,11 +2,15 @@ from sklearn.pipeline import Pipeline
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.base import BaseEstimator
 from skmultilearn.problem_transform import BinaryRelevance, ClassifierChain, LabelPowerset
+from sklearn.multioutput import MultiOutputClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from nltk.corpus import stopwords
-from sklearn.metrics import accuracy_score,f1_score, precision_recall_fscore_support
+from sklearn.metrics import accuracy_score,f1_score, precision_recall_fscore_support, confusion_matrix,classification_report
 import pandas as pd
+from sklearn.model_selection import StratifiedKFold
+
+
 
 
 class ClfSwitcher(BaseEstimator):
@@ -33,23 +37,37 @@ def score(y_true, y_pred, index):
     performance = {'precision': metrics[0], 'recall': metrics[1], 'f1': metrics[2]}
     return pd.DataFrame(performance, index=[index])
 
-# Returns Pipline
-def run_nandom_forest(dataloader):
+
+# Returns Clf
+def run_random_forest(dataloader):
     stop_words = set(stopwords.words('english'))
     dataloader.train_test_validate_split()
-    pipeline = Pipeline([('tfidf', TfidfVectorizer(stop_words=stop_words)), ('clf', ClfSwitcher())])
+    tfidf_vectorizer = TfidfVectorizer(stop_words=stop_words) 
+    tfidf_train_vectors = tfidf_vectorizer.fit_transform(dataloader.x_train)
+    tfidf_test_vectors = tfidf_vectorizer.transform(dataloader.x_test)
+    clf = ClfSwitcher()
+    clf.fit(tfidf_train_vectors, dataloader.y_train)
+    y_pred = clf.predict(tfidf_test_vectors)
+    print(classification_report(dataloader.y_test,y_pred))
+    return clf
 
-    pipeline.fit(dataloader.x_train, dataloader.y_train)
-    predictions = pipeline.predict(dataloader.x_test)
-    print('Macro f1 score is ',f1_score(dataloader.y_test, predictions, average="macro"))
-    return pipeline
+def run_multioutput_clf(dataloader, clf=RandomForestClassifier()):
+    stop_words = set(stopwords.words('english'))
+    dataloader.train_test_validate_split()
+    tfidf_vectorizer = TfidfVectorizer(stop_words=stop_words) 
+    tfidf_train_vectors = tfidf_vectorizer.fit_transform(dataloader.x_train)
+    tfidf_test_vectors = tfidf_vectorizer.transform(dataloader.x_test)
+    model = MultiOutputClassifier(estimator=clf)
+    model.fit(tfidf_train_vectors, dataloader.y_train)
+    y_pred = model.predict(tfidf_test_vectors)
+    print(classification_report(dataloader.y_test,y_pred))
+    return model
 
-def run_logistic_regression(dataloader):
+def run_logistic_regression(dataloader):    
     stop_words = set(stopwords.words('english'))
     dataloader.train_test_validate_split()
     # BinaryRelevance / ClassifierChain
     pipeline = Pipeline([('tfidf', TfidfVectorizer(stop_words=stop_words)), ('clf', ClassifierChain(LogisticRegression(solver='sag')))])
-
     pipeline.fit(dataloader.x_train, dataloader.y_train)
     predictions = pipeline.predict(dataloader.x_test)
     print('Macro F1 score of Logistic Regression is is ',f1_score(dataloader.y_test, predictions, average="macro"))
