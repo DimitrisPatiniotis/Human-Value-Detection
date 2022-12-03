@@ -41,16 +41,19 @@ class BERTDataset(Dataset):
         }
 
 class BERTClass(torch.nn.Module):
-    def __init__(self, dl, target_cols, max_length, freeze_bert=True, head_type='MLP', multihead=True, biodirectional_GRU=True, GRU_hidden_dim=20, dropout=0.2):
+    def __init__(self, dl, target_cols, max_length, device='cpu'):
 
         super(BERTClass, self).__init__()
 
         self.dl = dl
         self.max_length = max_length
-        self.freeze_bert = freeze_bert
-        self.head_type = head_type
-        self.multihead = multihead
-        self.biodirectional_GRU = biodirectional_GRU
+        self.device = device
+        self.freeze_bert = FREEZE_BERT
+        self.head_type = HEAD_TYPE
+        self.multihead = MULTIHEAD
+        self.biodirectional_GRU = BIODIRECTIONAL_GRU
+        self.dropout_rate = DROPOUT
+        self.GRU_hidden_dim = GRU_HIDDEN_DIM
 
         self.bert = BertModel.from_pretrained('bert-base-uncased')
 
@@ -74,30 +77,38 @@ class BERTClass(torch.nn.Module):
             if not self.multihead:
                 self.fc = torch.nn.Linear(embedding_dim*max_length, len(target_cols))
             else:
-                self.fcs = [torch.nn.Linear(embedding_dim*max_length, 1) for _ in range(len(target_cols))]
+                self.fcs = [torch.nn.Linear(embedding_dim*max_length, 1, device=self.device)
+                            for _ in range(len(target_cols))]
         elif self.head_type == 'GRU':
             if not self.multihead:
                 self.rnn = torch.nn.GRU(embedding_dim,
-                                        GRU_hidden_dim,
+                                        self.GRU_hidden_dim,
                                         num_layers=1,
                                         bidirectional=self.biodirectional_GRU,
                                         batch_first=True,
                                         dropout=0)
-                self.fc = torch.nn.Linear(GRU_hidden_dim*2 if self.biodirectional_GRU else GRU_hidden_dim, len(target_cols))
+                self.fc = torch.nn.Linear(self.GRU_hidden_dim*2 if self.biodirectional_GRU
+                                                                else self.GRU_hidden_dim,
+                                          len(target_cols))
             else:
                 self.rnns = [torch.nn.GRU(embedding_dim,
-                                          GRU_hidden_dim,
+                                          self.GRU_hidden_dim,
                                           num_layers=1,
                                           bidirectional=self.biodirectional_GRU,
                                           batch_first=True,
-                                          dropout=0) for _ in range(len(target_cols))]
-                self.fcs = [torch.nn.Linear(GRU_hidden_dim*2 if self.biodirectional_GRU else GRU_hidden_dim, 1) for _ in range(len(target_cols))]
+                                          dropout=0,
+                                          device=self.device) for _ in range(len(target_cols))]
+                self.fcs = [torch.nn.Linear(self.GRU_hidden_dim*2 if self.biodirectional_GRU
+                                                                  else self.GRU_hidden_dim,
+                                            1,
+                                            device=self.device)
+                            for _ in range(len(target_cols))]
 
         else:
             print("You should choose a valid 'head_type' !!!")
             exit(0)
 
-        self.dropout = torch.nn.Dropout(dropout)
+        self.dropout = torch.nn.Dropout(self.dropout_rate)
 
     
     def forward(self, ids):
@@ -231,7 +242,7 @@ class BERTClass(torch.nn.Module):
 
         train_loader = DataLoader(train_dataset, batch_size=TRAIN_BATCH_SIZE, num_workers=4, shuffle=True,
                                   pin_memory=True)
-        valid_loader = DataLoader(valid_dataset, batch_size=len(self.dl.validation.index), num_workers=4, shuffle=False,
+        valid_loader = DataLoader(valid_dataset, batch_size=TRAIN_BATCH_SIZE, num_workers=4, shuffle=False,
                                   pin_memory=True)
 
         print('Starting training...')

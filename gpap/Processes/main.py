@@ -10,6 +10,8 @@ from sklearn.svm import SVC
 import transformers
 transformers.logging.set_verbosity_error()
 
+import torch
+
 def main():
 
     dl = Loader()
@@ -27,7 +29,8 @@ def main():
         dl.train_test_validate_split(test_size=0.3, to_loader=True, random_state=1)
         max_length = dl.get_max_len()[0]
 
-        model = BERTClass(target_cols=dl.get_target_cols(), max_length=max_length, freeze_bert=True, head_type='GRU', multihead=True, dl=dl)
+        model = BERTClass(target_cols=dl.get_target_cols(), max_length=max_length, dl=dl,
+                          device='cuda' if torch.cuda.is_available() else 'cpu')
         model.train_()
 
     else:

@@ -1,0 +1,7 @@
+pip install pandas
+pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu116
+pip install transformers
+pip install -U scikit-learn
+pip install scikit-multilearn
+pip install nltk
+pip install matplotlib 
