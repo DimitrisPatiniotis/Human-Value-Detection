@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import torch
 from sklearn.metrics import classification_report
@@ -77,8 +78,8 @@ class BERTClass(torch.nn.Module):
             if not self.multihead:
                 self.fc = torch.nn.Linear(embedding_dim*max_length, len(target_cols))
             else:
-                self.fcs = [torch.nn.Linear(embedding_dim*max_length, 1, device=self.device)
-                            for _ in range(len(target_cols))]
+                self.fcs = torch.nn.ModuleList([torch.nn.Linear(embedding_dim*max_length, 1)
+                                                for _ in range(len(target_cols))])
         elif self.head_type == 'GRU':
             if not self.multihead:
                 self.rnn = torch.nn.GRU(embedding_dim,
@@ -91,18 +92,16 @@ class BERTClass(torch.nn.Module):
                                                                 else self.GRU_hidden_dim,
                                           len(target_cols))
             else:
-                self.rnns = [torch.nn.GRU(embedding_dim,
-                                          self.GRU_hidden_dim,
-                                          num_layers=1,
-                                          bidirectional=self.biodirectional_GRU,
-                                          batch_first=True,
-                                          dropout=0,
-                                          device=self.device) for _ in range(len(target_cols))]
-                self.fcs = [torch.nn.Linear(self.GRU_hidden_dim*2 if self.biodirectional_GRU
-                                                                  else self.GRU_hidden_dim,
-                                            1,
-                                            device=self.device)
-                            for _ in range(len(target_cols))]
+                self.rnns = torch.nn.ModuleList([torch.nn.GRU(embedding_dim,
+                                                 self.GRU_hidden_dim,
+                                                 num_layers=1,
+                                                 bidirectional=self.biodirectional_GRU,
+                                                 batch_first=True,
+                                                 dropout=0) for _ in range(len(target_cols))])
+                self.fcs = torch.nn.ModuleList([torch.nn.Linear(self.GRU_hidden_dim*2 if self.biodirectional_GRU
+                                                                                      else self.GRU_hidden_dim,
+                                                                1)
+                                                for _ in range(len(target_cols))])
 
         else:
             print("You should choose a valid 'head_type' !!!")
@@ -217,7 +216,8 @@ class BERTClass(torch.nn.Module):
 
         v_conc_pred_one_hot = np.concatenate(v_pred_one_hot, axis=0)
         v_conc_ground_truth = np.concatenate(v_ground_truth, axis=0)
-        v_clr_dict = classification_report(v_conc_ground_truth, v_conc_pred_one_hot, output_dict=True)
+        v_clr_dict = classification_report(v_conc_ground_truth, v_conc_pred_one_hot,
+                                           zero_division=0, output_dict=True)
 
         print(f'Epoch: {epoch}, Loss:  {sum(loss_list) / len(loss_list):.2f}, '
               f'Val Loss: {sum(v_loss_list) / len(v_loss_list):.2f}, Val F1: {v_clr_dict["macro avg"]["f1-score"]:.2f}')
@@ -226,6 +226,11 @@ class BERTClass(torch.nn.Module):
 
 
     def train_(self):
+
+        #Create a directory to store the model
+        if not os.path.exists(MODEL_PATH):
+            os.mkdir(MODEL_PATH)
+
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
@@ -252,8 +257,9 @@ class BERTClass(torch.nn.Module):
             val_loss, val_F1 = self.one_epoch_train(epoch, train_loader, valid_loader, device, optimizer)
 
             if best_val_loss > val_loss:
+                best_val_loss = val_loss
                 epochs_wo_improve = 0
-                torch.save(self.state_dict(), './../saved_model/model.pt')
+                torch.save(self.state_dict(), MODEL_PATH)
             elif epochs_wo_improve > PATIENCE:
                 print(f'Early stopping at epoch {epoch} !')
                 break

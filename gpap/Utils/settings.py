@@ -10,3 +10,4 @@ HEAD_TYPE = 'MLP'
 MULTIHEAD = True
 BIODIRECTIONAL_GRU = True
 GRU_HIDDEN_DIM = 20
+MODEL_PATH = './../saved_model/model.pt'
