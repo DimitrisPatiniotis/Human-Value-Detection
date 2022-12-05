@@ -6,9 +6,10 @@ import pandas as pd
 from matplotlib import pyplot as plt
 from nltk.stem import PorterStemmer
 from nltk.tokenize import word_tokenize
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, StratifiedKFold
 from skmultilearn.model_selection import iterative_train_test_split
-
+from sklearn.preprocessing import LabelEncoder
+import numpy as np
 
 def get_main_label_names(json_path):
     with open(json_path) as jsonFile:
@@ -136,6 +137,38 @@ class Loader():
                                    axis=1).reset_index(drop=True)
             self.validation = pd.concat([pd.DataFrame(self.x_test, columns=['Text']), pd.DataFrame(self.y_test, columns=self.label_names)],
                                         axis=1).reset_index(drop=True)
+
+    def multilabel_to_string(self, y):
+        return '-'.join(str(int(l.item())) for l in y)
+
+    def multilabel_to_multiclass(self, y):
+        y_new = LabelEncoder().fit_transform([self.multilabel_to_string(l) for l in y])
+        return y_new
+
+    def StratifiedCFV(self, n_folds=1, random_state=2022):
+
+        if n_folds < 2:
+            X_train, X_val, y_train, y_val = \
+                train_test_split(np.arange(len(self.workingTable['Text'].index)),
+                                 np.zeros(len(self.workingTable['Text'].index)),
+                                 test_size=0.1, random_state=random_state, shuffle=True)
+
+            self.train = pd.concat([pd.DataFrame(self.workingTable['Text'].iloc[X_train], columns=['Text']),
+                                    pd.DataFrame(self.workingTable[self.label_names].iloc[X_train], columns=self.label_names)],
+                                   axis=1).reset_index(drop=True)
+
+            self.validation = pd.concat([pd.DataFrame(self.workingTable['Text'].iloc[X_val], columns=['Text']),
+                                         pd.DataFrame(self.workingTable[self.label_names].iloc[X_val], columns=self.label_names)],
+                                        axis=1).reset_index(drop=True)
+
+        else:
+
+            folds = StratifiedKFold(n_splits=n_folds, random_state=random_state)
+
+            splits = folds.split(np.zeros(len(self.workingTable['Text'].index)),
+                                 self.multilabel_to_multiclass(self.workingTable[self.label_names].values))
+
+            return splits
 
     def split_to_train_val(self):
         self.workingTable = self.workingTable.sample(frac=1).reset_index(drop=True)

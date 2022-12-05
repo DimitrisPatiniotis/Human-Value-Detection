@@ -15,7 +15,7 @@ import torch
 def main():
 
     dl = Loader()
-    dl.load(clean=False, w_sep=True, w_concl=False, w_stance=False)
+    dl.load(clean=False, w_sep=True, w_concl=True, w_stance=False)
 
     if ALGO=='SVM':
 
@@ -26,11 +26,12 @@ def main():
 
     elif ALGO == 'BERT':
 
-        dl.train_test_validate_split(test_size=0.3, to_loader=True, random_state=1)
+        dl.StratifiedCFV(n_folds=1)
         max_length = dl.get_max_len()[0]
 
         model = BERTClass(target_cols=dl.get_target_cols(), max_length=max_length, dl=dl,
                           device='cuda' if torch.cuda.is_available() else 'cpu')
+
         model.train_()
 
     else:

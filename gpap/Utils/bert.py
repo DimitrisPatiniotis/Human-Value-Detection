@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import torch
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, f1_score
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 from transformers import AutoTokenizer, AdamW
@@ -216,13 +216,51 @@ class BERTClass(torch.nn.Module):
 
         v_conc_pred_one_hot = np.concatenate(v_pred_one_hot, axis=0)
         v_conc_ground_truth = np.concatenate(v_ground_truth, axis=0)
-        v_clr_dict = classification_report(v_conc_ground_truth, v_conc_pred_one_hot,
-                                           zero_division=0, output_dict=True)
+        f1_micro_average = f1_score(y_true=v_conc_ground_truth, y_pred=v_conc_pred_one_hot, average='micro', zero_division=0)
 
         print(f'Epoch: {epoch}, Loss:  {sum(loss_list) / len(loss_list):.2f}, '
-              f'Val Loss: {sum(v_loss_list) / len(v_loss_list):.2f}, Val F1: {v_clr_dict["macro avg"]["f1-score"]:.2f}')
+              f'Val Loss: {sum(v_loss_list) / len(v_loss_list):.2f}, Val F1: {f1_micro_average:.2f}')
 
-        return sum(v_loss_list) / len(v_loss_list), v_clr_dict["macro avg"]["f1-score"]
+        return sum(v_loss_list) / len(v_loss_list), f1_micro_average
+
+    def best_model_evaluation(self, vloader, device):
+
+        print('Training has ended. Loading best model for evaluation..')
+        self.load_state_dict(torch.load(MODEL_PATH, map_location=torch.device(device)))
+        self.eval()
+
+        final_v_loss_list = []
+        final_v_pred_one_hot = []
+        final_v_ground_truth = []
+        for _, v_data in tqdm(enumerate(vloader, 0)):
+            v_ids = v_data['ids'].to(device, dtype=torch.long)
+            v_targets = v_data['targets'].to(device, dtype=torch.float)
+
+            with torch.no_grad():
+                v_outputs = self(v_ids)
+
+                v_loss = loss_fn(v_outputs, v_targets)
+                final_v_loss_list.append(v_loss.item())
+
+                sig = torch.nn.Sigmoid()
+                v_probs = sig(v_outputs)
+
+            final_v_pred_one_hot.append(np.around(v_probs.cpu().numpy()))
+            final_v_ground_truth.append(v_targets.cpu().numpy())
+
+        v_conc_pred_one_hot = np.concatenate(final_v_pred_one_hot, axis=0)
+        v_conc_ground_truth = np.concatenate(final_v_ground_truth, axis=0)
+        final_f1_micro_average = f1_score(y_true=v_conc_ground_truth,
+                                          y_pred=v_conc_pred_one_hot,
+                                          average='micro',
+                                          zero_division=0)
+        v_clr_dict = classification_report(v_conc_ground_truth,
+                                           v_conc_pred_one_hot,
+                                           zero_division=0)
+
+        print(f'Best model: \n'
+              f'Val Loss: {sum(final_v_loss_list) / len(final_v_loss_list):.2f}, Val F1: {final_f1_micro_average:.2f}\n'
+              f'Classification Report: {v_clr_dict}')
 
 
     def train_(self):
@@ -247,7 +285,7 @@ class BERTClass(torch.nn.Module):
 
         train_loader = DataLoader(train_dataset, batch_size=TRAIN_BATCH_SIZE, num_workers=4, shuffle=True,
                                   pin_memory=True)
-        valid_loader = DataLoader(valid_dataset, batch_size=TRAIN_BATCH_SIZE, num_workers=4, shuffle=False,
+        valid_loader = DataLoader(valid_dataset, batch_size=3000, num_workers=4, shuffle=False,
                                   pin_memory=True)
 
         print('Starting training...')
@@ -265,6 +303,8 @@ class BERTClass(torch.nn.Module):
                 break
             else:
                 epochs_wo_improve += 1
+
+        self.best_model_evaluation(valid_loader, device)
 
     
 if __name__ == '__main__':
