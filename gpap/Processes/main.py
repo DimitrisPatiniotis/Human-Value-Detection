@@ -27,7 +27,7 @@ def main():
     elif ALGO == 'BERT':
 
         dl.StratifiedCFV(n_folds=1)
-        max_length = dl.get_max_len()[0]
+        max_length = dl.get_max_len()[0] if MAX_LENGTH == -1 else MAX_LENGTH
 
         model = BERTClass(target_cols=dl.get_target_cols(), max_length=max_length, dl=dl,
                           device='cuda' if torch.cuda.is_available() else 'cpu')

@@ -266,8 +266,8 @@ class BERTClass(torch.nn.Module):
     def train_(self):
 
         #Create a directory to store the model
-        if not os.path.exists(MODEL_PATH):
-            os.mkdir(MODEL_PATH)
+        if not os.path.exists('/'.join(MODEL_PATH.split('/')[:-1])):
+            os.mkdir('/'.join(MODEL_PATH.split('/')[:-1]))
 
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -285,7 +285,7 @@ class BERTClass(torch.nn.Module):
 
         train_loader = DataLoader(train_dataset, batch_size=TRAIN_BATCH_SIZE, num_workers=4, shuffle=True,
                                   pin_memory=True)
-        valid_loader = DataLoader(valid_dataset, batch_size=3000, num_workers=4, shuffle=False,
+        valid_loader = DataLoader(valid_dataset, batch_size=TRAIN_BATCH_SIZE, num_workers=4, shuffle=False,
                                   pin_memory=True)
 
         print('Starting training...')

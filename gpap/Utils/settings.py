@@ -10,3 +10,4 @@ MULTIHEAD = True
 BIODIRECTIONAL_GRU = True
 GRU_HIDDEN_DIM = 20
 MODEL_PATH = './../saved_model/model.pt'
+MAX_LENGTH = 128 #If -1 it will be specified automatically based on the length of the sentence with the max number of words
