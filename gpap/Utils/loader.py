@@ -10,6 +10,7 @@ from sklearn.model_selection import train_test_split, StratifiedKFold
 from skmultilearn.model_selection import iterative_train_test_split
 from sklearn.preprocessing import LabelEncoder
 import numpy as np
+import seaborn as sns
 
 def get_main_label_names(json_path):
     with open(json_path) as jsonFile:
@@ -195,6 +196,28 @@ class Loader():
             plt.text(i.get_width()+0.2, i.get_y()+0.5, str(round((i.get_width()), 2)), fontsize=10, fontweight='bold', color='grey')
         ax.set_title('Occurrences of Value Categories', loc='left')
         plt.show()
+
+    def plot_sentences_length(self):
+        fig, ax = plt.subplots(figsize=(15, 15))
+        ax.set_title('Histogram of sentences length', loc='center', fontsize=20,)
+        self.workingTable['Text'].apply(lambda x: len(x)).value_counts(bins=10).plot(kind='bar')
+        for bars in ax.containers:
+            ax.bar_label(bars, fontsize=13)
+        plt.xticks(rotation=45, fontsize=13)
+        plt.yticks(fontsize=13)
+        plt.xlabel('Sentence length', labelpad=15, fontsize=15)
+        plt.ylabel('Counts', labelpad=15, fontsize=15)
+        plt.show()
+
+    def plot_labels_correlation(self):
+        cormat = self.workingTable[self.label_names].corr()
+        fig, ax = plt.subplots(figsize=(20, 15))
+        ax.set_title('Labels correlation', loc='center', fontsize=20, )
+        sns.heatmap(round(cormat, 2), annot=True)
+        plt.tight_layout()
+        ax.tick_params(axis='x', rotation=90)
+
+        plt.show()
     
     def get_target_cols(self):
         return [col for col in self.workingTable.columns if col not in ['Argument ID', 'Text']]
@@ -203,7 +226,10 @@ class Loader():
 if __name__ == '__main__':
     print('Data Loader Util')
     dl = Loader()
-    dl.load()
-    dl.show_label_stats()
-    max_len, sentence_max_len = dl.get_max_len()
-    print('max_len: ' + str(max_len) + ' Sentence: ' + sentence_max_len)
+    dl.load(clean=False, w_sep=True, w_concl=True, w_stance=False)
+    dl.plot_labels_correlation()
+    #dl.plot_sentences_length()
+
+    #dl.show_label_stats()
+    #max_len, sentence_max_len = dl.get_max_len()
+    #print('max_len: ' + str(max_len) + ' Sentence: ' + sentence_max_len)

@@ -9,9 +9,31 @@ from transformers import BertModel
 
 from settings import *
 
-
-def loss_fn(outputs, targets):
+def BCE_loss(outputs, targets):
     return torch.nn.BCEWithLogitsLoss()(outputs, targets)
+
+def f1_loss(y_pred, y_true):
+    """
+    Calculate F1 score. Can work with gpu tensors
+
+    Reference
+    ---------
+    - https://gist.github.com/SuperShinyEyes/dcc68a08ff8b615442e3bc6a9b55a354
+    - Paper: sigmoidF1: A Smooth F1 Score Surrogate Loss for Multilabel Classification
+
+    """
+    sig_ = torch.nn.Sigmoid()
+    y_pred_probs = sig_(y_pred)
+
+    tp = (y_true * y_pred_probs).mean().to(torch.float32)
+    fp = ((1 - y_true) * y_pred_probs).mean().to(torch.float32)
+    fn = (y_true * (1 - y_pred_probs)).mean().to(torch.float32)
+
+    epsilon = 1e-7
+
+    sigmoidF1 = (2*tp) / ((2*tp) + fn + fp + epsilon)
+
+    return sigmoidF1 #f1
 
 class BERTDataset(Dataset):
     def __init__(self, df, tokenizer, max_len, target_cols):
@@ -184,8 +206,8 @@ class BERTClass(torch.nn.Module):
 
             outputs = self(ids)
 
-            loss = loss_fn(outputs, targets)
-            loss_list.append(loss.item())
+            loss = BCE_loss(outputs, targets) if LOSS == 'BCE' else (f1_loss(outputs, targets) if LOSS == 'sigmoidF1' else 0.0)
+            loss_list.append(loss if LOSS == 'sigmoidF1' else loss.item())
 
             loss.backward()
             optimizer.step()
@@ -205,8 +227,8 @@ class BERTClass(torch.nn.Module):
             with torch.no_grad():
                 v_outputs = self(v_ids)
 
-                v_loss = loss_fn(v_outputs, v_targets)
-                v_loss_list.append(v_loss.item())
+                v_loss = BCE_loss(v_outputs, v_targets) if LOSS == 'BCE' else (f1_loss(v_outputs, v_targets) if LOSS == 'sigmoidF1' else 0.0)
+                v_loss_list.append(v_loss if LOSS == 'sigmoidF1' else v_loss.item())
 
                 sig = torch.nn.Sigmoid()
                 v_probs = sig(v_outputs)
@@ -239,8 +261,8 @@ class BERTClass(torch.nn.Module):
             with torch.no_grad():
                 v_outputs = self(v_ids)
 
-                v_loss = loss_fn(v_outputs, v_targets)
-                final_v_loss_list.append(v_loss.item())
+                v_loss = BCE_loss(v_outputs, v_targets) if LOSS == 'BCE' else (f1_loss(v_outputs, v_targets) if LOSS == 'sigmoidF1' else 0.0)
+                final_v_loss_list.append(v_loss if LOSS == 'sigmoidF1' else v_loss.item())
 
                 sig = torch.nn.Sigmoid()
                 v_probs = sig(v_outputs)
@@ -260,7 +282,7 @@ class BERTClass(torch.nn.Module):
 
         print(f'Best model: \n'
               f'Val Loss: {sum(final_v_loss_list) / len(final_v_loss_list):.2f}, Val F1: {final_f1_micro_average:.2f}\n'
-              f'Classification Report: {v_clr_dict}')
+              f'Classification Report: \n {v_clr_dict}')
 
 
     def train_(self):

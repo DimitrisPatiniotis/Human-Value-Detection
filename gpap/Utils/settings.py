@@ -1,13 +1,14 @@
-TRAIN_BATCH_SIZE = 1
+TRAIN_BATCH_SIZE = 8
 EPOCHS = 10
 LEARNING_RATE = 2e-5
 PATIENCE = 5
 DROPOUT = 0.2
 ALGO = 'BERT'
 FREEZE_BERT = True
-HEAD_TYPE = 'MLP'
+HEAD_TYPE = 'MLP' #Options: 'MLP', 'GRU'
 MULTIHEAD = True
 BIODIRECTIONAL_GRU = True
 GRU_HIDDEN_DIM = 20
 MODEL_PATH = './../saved_model/model.pt'
 MAX_LENGTH = 128 #If -1 it will be specified automatically based on the length of the sentence with the max number of words
+LOSS = 'sigmoidF1' # 'BCE', 'sigmoidF1'
