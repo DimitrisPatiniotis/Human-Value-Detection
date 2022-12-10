@@ -25,15 +25,16 @@ def f1_loss(y_pred, y_true):
     sig_ = torch.nn.Sigmoid()
     y_pred_probs = sig_(y_pred)
 
-    tp = (y_true * y_pred_probs).mean().to(torch.float32)
-    fp = ((1 - y_true) * y_pred_probs).mean().to(torch.float32)
-    fn = (y_true * (1 - y_pred_probs)).mean().to(torch.float32)
+    tp = (y_true * y_pred_probs).mean(dim=0).to(torch.float32)
+    fp = ((1 - y_true) * y_pred_probs).mean(dim=0).to(torch.float32)
+    fn = (y_true * (1 - y_pred_probs)).mean(dim=0).to(torch.float32)
 
     epsilon = 1e-7
 
     sigmoidF1 = (2*tp) / ((2*tp) + fn + fp + epsilon)
+    sigmoidF1_mean = sigmoidF1.mean()
 
-    return sigmoidF1 #f1
+    return 1-sigmoidF1_mean
 
 class BERTDataset(Dataset):
     def __init__(self, df, tokenizer, max_len, target_cols):
