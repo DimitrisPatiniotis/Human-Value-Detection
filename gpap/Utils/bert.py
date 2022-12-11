@@ -5,7 +5,7 @@ from sklearn.metrics import classification_report, f1_score
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 from transformers import AutoTokenizer, AdamW
-from transformers import BertModel
+from transformers import BertModel, AutoConfig
 
 from settings import *
 
@@ -42,8 +42,7 @@ class BERTDataset(Dataset):
         self.max_len = max_len
         self.text = df.Text
         self.tokenizer = tokenizer
-        # Bug Here
-        
+
         self.targets = df[target_cols].values
         
     def __len__(self):
@@ -78,8 +77,12 @@ class BERTClass(torch.nn.Module):
         self.biodirectional_GRU = BIODIRECTIONAL_GRU
         self.dropout_rate = DROPOUT
         self.GRU_hidden_dim = GRU_HIDDEN_DIM
+        self.target_cols = target_cols
 
-        self.bert = BertModel.from_pretrained('bert-base-uncased')
+        configuration = AutoConfig.from_pretrained('bert-base-uncased')
+        configuration.hidden_dropout_prob = HIDDEN_DROPOUT_PROB
+        configuration.attention_probs_dropout_prob = ATTENTION_PROBS_DROPOUT_PROBS
+        self.bert = BertModel.from_pretrained(pretrained_model_name_or_path='bert-base-uncased', config=configuration)
 
         if max_length > 512:
             self.bert.config.max_position_embeddings = max_length
@@ -99,10 +102,10 @@ class BERTClass(torch.nn.Module):
 
         if self.head_type == 'MLP':
             if not self.multihead:
-                self.fc = torch.nn.Linear(embedding_dim*max_length, len(target_cols))
+                self.fc = torch.nn.Linear(embedding_dim*max_length, len(self.target_cols))
             else:
                 self.fcs = torch.nn.ModuleList([torch.nn.Linear(embedding_dim*max_length, 1)
-                                                for _ in range(len(target_cols))])
+                                                for _ in range(len(self.target_cols))])
         elif self.head_type == 'GRU':
             if not self.multihead:
                 self.rnn = torch.nn.GRU(embedding_dim,
@@ -120,11 +123,11 @@ class BERTClass(torch.nn.Module):
                                                  num_layers=1,
                                                  bidirectional=self.biodirectional_GRU,
                                                  batch_first=True,
-                                                 dropout=0) for _ in range(len(target_cols))])
+                                                 dropout=0) for _ in range(len(self.target_cols))])
                 self.fcs = torch.nn.ModuleList([torch.nn.Linear(self.GRU_hidden_dim*2 if self.biodirectional_GRU
                                                                                       else self.GRU_hidden_dim,
                                                                 1)
-                                                for _ in range(len(target_cols))])
+                                                for _ in range(len(self.target_cols))])
 
         else:
             print("You should choose a valid 'head_type' !!!")
@@ -204,6 +207,7 @@ class BERTClass(torch.nn.Module):
         for _, data in tqdm(enumerate(tloader, 0)):
             ids = data['ids'].to(device, dtype=torch.long)
             targets = data['targets'].to(device, dtype=torch.float)
+            print(targets)
 
             outputs = self(ids)
 

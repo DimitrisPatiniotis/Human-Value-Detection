@@ -12,6 +12,8 @@ from sklearn.preprocessing import LabelEncoder
 import numpy as np
 import seaborn as sns
 
+from settings import *
+
 def get_main_label_names(json_path):
     with open(json_path) as jsonFile:
         data = json.load(jsonFile)
@@ -73,6 +75,7 @@ class Loader():
         self.workingTable = None
         self.train = None
         self.validation = None
+        self.target_cols = None
 
         self.x_train = None
         self.y_train = None
@@ -220,7 +223,12 @@ class Loader():
         plt.show()
     
     def get_target_cols(self):
-        return [col for col in self.workingTable.columns if col not in ['Argument ID', 'Text']]
+        temp_target_cols = [col for col in self.workingTable.columns if col not in ['Argument ID', 'Text']]
+        if not SINGLE_CLASS_TRAINING:
+            self.target_cols = temp_target_cols
+        else:
+            self.target_cols = [temp_target_cols[CLASS]]
+        return self.target_cols
 
 
 if __name__ == '__main__':
