@@ -9,10 +9,11 @@ from transformers import BertModel, AutoConfig
 
 from settings import *
 
-def BCE_loss(outputs, targets):
-    return torch.nn.BCEWithLogitsLoss()(outputs, targets)
+def BCE_loss(outputs, targets, weights=None):
 
-def f1_loss(y_pred, y_true):
+    return torch.nn.BCEWithLogitsLoss(weight=weights)(outputs, targets)
+
+def f1_loss(y_pred, y_true, weights=None):
     """
     Calculate F1 score. Can work with gpu tensors
 
@@ -25,26 +26,41 @@ def f1_loss(y_pred, y_true):
     sig_ = torch.nn.Sigmoid()
     y_pred_probs = sig_(y_pred)
 
-    tp = (y_true * y_pred_probs).mean(dim=0).to(torch.float32)
-    fp = ((1 - y_true) * y_pred_probs).mean(dim=0).to(torch.float32)
-    fn = (y_true * (1 - y_pred_probs)).mean(dim=0).to(torch.float32)
+    tp = (y_true * y_pred_probs).to(torch.float32)
+    fp = ((1 - y_true) * y_pred_probs).to(torch.float32)
+    fn = (y_true * (1 - y_pred_probs)).to(torch.float32)
 
     epsilon = 1e-7
 
     sigmoidF1 = (2*tp) / ((2*tp) + fn + fp + epsilon)
-    sigmoidF1_mean = sigmoidF1.mean()
 
-    return 1-sigmoidF1_mean
+    reverse_sigmoidF1 = 1-sigmoidF1
+    if weights is not None:
+        reverse_sigmoidF1 = reverse_sigmoidF1 * weights
+
+    mean_reverse_sigmoidF1 = reverse_sigmoidF1.mean()
+
+    return mean_reverse_sigmoidF1
 
 class BERTDataset(Dataset):
-    def __init__(self, df, tokenizer, max_len, target_cols):
+    def __init__(self, df, tokenizer, max_len, target_cols, train=False):
         self.df = df
         self.max_len = max_len
         self.text = df.Text
         self.tokenizer = tokenizer
-
         self.targets = df[target_cols].values
-        
+
+        if train and W_LOSS_WEIGHTS:
+            # Calculations based on:
+            # https://naadispeaks.wordpress.com/2021/07/31/handling-imbalanced-classes-with-weighted-loss-in-pytorch/
+
+            if not SINGLE_CLASS_TRAINING:
+                print('When "W_LOSS_WEIGHTS", then "SINGLE_CLASS_TRAINING" should be "True" but found to be "False" !!!')
+                exit(0)
+            else:
+                num_train_samples_per_binary_class = df[target_cols].value_counts()
+                self.train_loss_weights = (1 - (num_train_samples_per_binary_class/num_train_samples_per_binary_class.sum())).values
+
     def __len__(self):
         return len(self.df)
     
@@ -68,6 +84,8 @@ class BERTClass(torch.nn.Module):
 
         super(BERTClass, self).__init__()
 
+        self.train_dataset = None
+        self.valid_dataset = None
         self.dl = dl
         self.max_length = max_length
         self.device = device
@@ -207,11 +225,21 @@ class BERTClass(torch.nn.Module):
         for _, data in tqdm(enumerate(tloader, 0)):
             ids = data['ids'].to(device, dtype=torch.long)
             targets = data['targets'].to(device, dtype=torch.float)
-            print(targets)
 
             outputs = self(ids)
 
-            loss = BCE_loss(outputs, targets) if LOSS == 'BCE' else (f1_loss(outputs, targets) if LOSS == 'sigmoidF1' else 0.0)
+            if W_LOSS_WEIGHTS:
+                loss_weights_repeated_batch_size = np.repeat(self.train_dataset.train_loss_weights[np.newaxis, :], outputs.size()[0], axis=0)
+                final_loss_weights = np.take_along_axis(loss_weights_repeated_batch_size, np.array(targets.cpu().numpy(), dtype=np.int), axis=1)
+
+            loss = BCE_loss(outputs, targets, None if not W_LOSS_WEIGHTS
+                                                   else torch.from_numpy(final_loss_weights).to(device, dtype=torch.float)) \
+                   if LOSS == 'BCE' \
+                   else (f1_loss(outputs, targets, None if not W_LOSS_WEIGHTS
+                                                        else torch.from_numpy(final_loss_weights).to(device, dtype=torch.float))
+                         if LOSS == 'sigmoidF1'
+                         else 0.0)
+
             loss_list.append(loss if LOSS == 'sigmoidF1' else loss.item())
 
             loss.backward()
@@ -307,12 +335,12 @@ class BERTClass(torch.nn.Module):
 
         optimizer = AdamW(params=self.parameters(), lr=LEARNING_RATE, weight_decay=1e-6, no_deprecation_warning=True)
 
-        train_dataset = BERTDataset(self.dl.train, tokenizer, self.max_length, target_cols=self.dl.get_target_cols())
-        valid_dataset = BERTDataset(self.dl.validation, tokenizer, self.max_length, target_cols=self.dl.get_target_cols())
+        self.train_dataset = BERTDataset(self.dl.train, tokenizer, self.max_length, target_cols=self.dl.get_target_cols(), train=True)
+        self.valid_dataset = BERTDataset(self.dl.validation, tokenizer, self.max_length, target_cols=self.dl.get_target_cols())
 
-        train_loader = DataLoader(train_dataset, batch_size=TRAIN_BATCH_SIZE, num_workers=4, shuffle=True,
+        train_loader = DataLoader(self.train_dataset, batch_size=TRAIN_BATCH_SIZE, num_workers=4, shuffle=True,
                                   pin_memory=True)
-        valid_loader = DataLoader(valid_dataset, batch_size=TRAIN_BATCH_SIZE, num_workers=4, shuffle=False,
+        valid_loader = DataLoader(self.valid_dataset, batch_size=TRAIN_BATCH_SIZE, num_workers=4, shuffle=False,
                                   pin_memory=True)
 
         print('Starting training...')

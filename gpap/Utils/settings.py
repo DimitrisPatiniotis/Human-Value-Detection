@@ -1,5 +1,5 @@
 TRAIN_BATCH_SIZE = 8
-EPOCHS = 10
+EPOCHS = 1000
 LEARNING_RATE = 2e-5
 PATIENCE = 20
 DROPOUT = 0.5
@@ -16,3 +16,4 @@ MAX_LENGTH = 128 #If -1 it will be specified automatically based on the length o
 LOSS = 'sigmoidF1' # 'BCE', 'sigmoidF1'
 SINGLE_CLASS_TRAINING = True
 CLASS = 0
+W_LOSS_WEIGHTS = True
