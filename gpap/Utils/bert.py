@@ -27,20 +27,22 @@ def f1_loss(y_pred, y_true, weights=None):
     y_pred_probs = sig_(y_pred)
 
     tp = (y_true * y_pred_probs).to(torch.float32)
-    fp = ((1 - y_true) * y_pred_probs).to(torch.float32)
-    fn = (y_true * (1 - y_pred_probs)).to(torch.float32)
+    if weights is not None:
+        # Reverse weights since sigmoidF1 will be reversed, i.e., 1-sigmoidF1 .
+        tp = tp * (1.00 - weights)
+    tp = tp.mean(dim=0)
+
+    fp = ((1 - y_true) * y_pred_probs).mean(dim=0).to(torch.float32)
+    fn = (y_true * (1 - y_pred_probs)).mean(dim=0).to(torch.float32)
 
     epsilon = 1e-7
 
     sigmoidF1 = (2*tp) / ((2*tp) + fn + fp + epsilon)
+    mean_sigmoidF1 = sigmoidF1.mean()
 
-    reverse_sigmoidF1 = 1-sigmoidF1
-    if weights is not None:
-        reverse_sigmoidF1 = reverse_sigmoidF1 * weights
+    reverse_mean_sigmoidF1 = 1.00 - mean_sigmoidF1
 
-    mean_reverse_sigmoidF1 = reverse_sigmoidF1.mean()
-
-    return mean_reverse_sigmoidF1
+    return reverse_mean_sigmoidF1
 
 class BERTDataset(Dataset):
     def __init__(self, df, tokenizer, max_len, target_cols, train=False):
@@ -54,12 +56,13 @@ class BERTDataset(Dataset):
             # Calculations based on:
             # https://naadispeaks.wordpress.com/2021/07/31/handling-imbalanced-classes-with-weighted-loss-in-pytorch/
 
-            if not SINGLE_CLASS_TRAINING:
-                print('When "W_LOSS_WEIGHTS", then "SINGLE_CLASS_TRAINING" should be "True" but found to be "False" !!!')
+            if not SINGLE_CLASS:
+                print('When "W_LOSS_WEIGHTS", then "SINGLE_CLASS" should be "True" but found to be "False" !!!')
                 exit(0)
             else:
                 num_train_samples_per_binary_class = df[target_cols].value_counts()
-                self.train_loss_weights = (1 - (num_train_samples_per_binary_class/num_train_samples_per_binary_class.sum())).values
+                self.train_loss_weights = \
+                    (1 - (num_train_samples_per_binary_class/num_train_samples_per_binary_class.sum())).values
 
     def __len__(self):
         return len(self.df)
@@ -80,7 +83,7 @@ class BERTDataset(Dataset):
         }
 
 class BERTClass(torch.nn.Module):
-    def __init__(self, dl, target_cols, max_length, device='cpu'):
+    def __init__(self, dl, target_cols, max_length, device='cpu', multihead=None):
 
         super(BERTClass, self).__init__()
 
@@ -91,7 +94,7 @@ class BERTClass(torch.nn.Module):
         self.device = device
         self.freeze_bert = FREEZE_BERT
         self.head_type = HEAD_TYPE
-        self.multihead = MULTIHEAD
+        self.multihead = MULTIHEAD if multihead is None else multihead
         self.biodirectional_GRU = BIODIRECTIONAL_GRU
         self.dropout_rate = DROPOUT
         self.GRU_hidden_dim = GRU_HIDDEN_DIM
@@ -233,10 +236,10 @@ class BERTClass(torch.nn.Module):
                 final_loss_weights = np.take_along_axis(loss_weights_repeated_batch_size, np.array(targets.cpu().numpy(), dtype=np.int), axis=1)
 
             loss = BCE_loss(outputs, targets, None if not W_LOSS_WEIGHTS
-                                                   else torch.from_numpy(final_loss_weights).to(device, dtype=torch.float)) \
+                                                   else torch.from_numpy(final_loss_weights).to(device, dtype=torch.float32)) \
                    if LOSS == 'BCE' \
                    else (f1_loss(outputs, targets, None if not W_LOSS_WEIGHTS
-                                                        else torch.from_numpy(final_loss_weights).to(device, dtype=torch.float))
+                                                        else torch.from_numpy(final_loss_weights).to(device, dtype=torch.float32))
                          if LOSS == 'sigmoidF1'
                          else 0.0)
 
@@ -260,7 +263,20 @@ class BERTClass(torch.nn.Module):
             with torch.no_grad():
                 v_outputs = self(v_ids)
 
-                v_loss = BCE_loss(v_outputs, v_targets) if LOSS == 'BCE' else (f1_loss(v_outputs, v_targets) if LOSS == 'sigmoidF1' else 0.0)
+                if W_LOSS_WEIGHTS:
+                    v_loss_weights_repeated_batch_size = np.repeat(self.train_dataset.train_loss_weights[np.newaxis, :],
+                                                                   v_outputs.size()[0], axis=0)
+                    v_final_loss_weights = np.take_along_axis(v_loss_weights_repeated_batch_size,
+                                                            np.array(v_targets.cpu().numpy(), dtype=np.int), axis=1)
+
+                v_loss = BCE_loss(v_outputs, v_targets, None if not W_LOSS_WEIGHTS
+                                                             else torch.from_numpy(v_final_loss_weights).to(device, dtype=torch.float32)) \
+                         if LOSS == 'BCE' \
+                         else (f1_loss(v_outputs, v_targets, None if not W_LOSS_WEIGHTS
+                                                                  else torch.from_numpy(v_final_loss_weights).to(device, dtype=torch.float32))
+                               if LOSS == 'sigmoidF1'
+                               else 0.0)
+
                 v_loss_list.append(v_loss if LOSS == 'sigmoidF1' else v_loss.item())
 
                 sig = torch.nn.Sigmoid()
@@ -278,10 +294,15 @@ class BERTClass(torch.nn.Module):
 
         return sum(v_loss_list) / len(v_loss_list), f1_micro_average
 
-    def best_model_evaluation(self, vloader, device):
+    def best_model_evaluation(self, vloader, device, evaluation_only=False):
 
-        print('Training has ended. Loading best model for evaluation..')
-        self.load_state_dict(torch.load(MODEL_PATH, map_location=torch.device(device)))
+        if not evaluation_only:
+            print('Training has ended. Loading best model for evaluation..')
+        else:
+            print('Loading saved model for evaluation..')
+
+        self.load_state_dict(torch.load(MODEL_PATH if not evaluation_only else MODEL_PATH_FOR_EVALUATION_ONLY,
+                                        map_location=torch.device(device)))
         self.eval()
 
         final_v_loss_list = []
@@ -294,7 +315,20 @@ class BERTClass(torch.nn.Module):
             with torch.no_grad():
                 v_outputs = self(v_ids)
 
-                v_loss = BCE_loss(v_outputs, v_targets) if LOSS == 'BCE' else (f1_loss(v_outputs, v_targets) if LOSS == 'sigmoidF1' else 0.0)
+                if W_LOSS_WEIGHTS:
+                    v_loss_weights_repeated_batch_size = np.repeat(self.train_dataset.train_loss_weights[np.newaxis, :],
+                                                                   v_outputs.size()[0], axis=0)
+                    v_final_loss_weights = np.take_along_axis(v_loss_weights_repeated_batch_size,
+                                                              np.array(v_targets.cpu().numpy(), dtype=np.int), axis=1)
+
+                v_loss = BCE_loss(v_outputs, v_targets, None if not W_LOSS_WEIGHTS
+                                                             else torch.from_numpy(v_final_loss_weights).to(device, dtype=torch.float32)) \
+                         if LOSS == 'BCE' \
+                         else (f1_loss(v_outputs, v_targets, None if not W_LOSS_WEIGHTS
+                                                                  else torch.from_numpy(v_final_loss_weights).to(device, dtype=torch.float32))
+                               if LOSS == 'sigmoidF1'
+                               else 0.0)
+
                 final_v_loss_list.append(v_loss if LOSS == 'sigmoidF1' else v_loss.item())
 
                 sig = torch.nn.Sigmoid()
@@ -361,6 +395,23 @@ class BERTClass(torch.nn.Module):
 
         self.best_model_evaluation(valid_loader, device)
 
+    def evaluate_(self):
+
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+        tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+        if self.max_length > 512:
+            tokenizer.model_max_length = self.max_length
+            print('Max len exceeds 512 tokens !!! Tokenizer is changed !!!')
+
+        self.to(device)
+
+        self.valid_dataset = BERTDataset(self.dl.validation, tokenizer, self.max_length,
+                                         target_cols=self.dl.get_target_cols())
+        valid_loader = DataLoader(self.valid_dataset, batch_size=TRAIN_BATCH_SIZE, num_workers=4, shuffle=False,
+                                  pin_memory=True)
+
+        self.best_model_evaluation(valid_loader, device, evaluation_only=True)
     
 if __name__ == '__main__':
     print('BERT Utils')

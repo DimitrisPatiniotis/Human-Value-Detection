@@ -224,7 +224,7 @@ class Loader():
     
     def get_target_cols(self):
         temp_target_cols = [col for col in self.workingTable.columns if col not in ['Argument ID', 'Text']]
-        if not SINGLE_CLASS_TRAINING:
+        if not SINGLE_CLASS:
             self.target_cols = temp_target_cols
         else:
             self.target_cols = [temp_target_cols[CLASS]]

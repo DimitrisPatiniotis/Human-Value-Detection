@@ -32,7 +32,10 @@ def main():
         model = BERTClass(target_cols=dl.get_target_cols(), max_length=max_length, dl=dl,
                           device='cuda' if torch.cuda.is_available() else 'cpu')
 
-        model.train_()
+        if TRAIN:
+            model.train_()
+        else:
+            model.evaluate_()
 
     else:
         print("You should choose a valid algorithm !!!")
