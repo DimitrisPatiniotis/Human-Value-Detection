@@ -83,22 +83,24 @@ class BERTDataset(Dataset):
         }
 
 class BERTClass(torch.nn.Module):
-    def __init__(self, dl, target_cols, max_length, device='cpu', multihead=None):
+    def __init__(self, target_cols, max_length, device='cpu', dl=None, loader_train_dataset=None, loader_valid_dataset=None):
 
         super(BERTClass, self).__init__()
 
-        self.train_dataset = None
-        self.valid_dataset = None
+        self.loader_train_dataset = loader_train_dataset
+        self.loader_valid_dataset = loader_valid_dataset
         self.dl = dl
         self.max_length = max_length
         self.device = device
         self.freeze_bert = FREEZE_BERT
         self.head_type = HEAD_TYPE
-        self.multihead = MULTIHEAD if multihead is None else multihead
+        self.multihead = MULTIHEAD
         self.biodirectional_GRU = BIODIRECTIONAL_GRU
         self.dropout_rate = DROPOUT
         self.GRU_hidden_dim = GRU_HIDDEN_DIM
         self.target_cols = target_cols
+        self.train_dataset = None
+        self.valid_dataset = None
 
         configuration = AutoConfig.from_pretrained('bert-base-uncased')
         configuration.hidden_dropout_prob = HIDDEN_DROPOUT_PROB
@@ -123,9 +125,13 @@ class BERTClass(torch.nn.Module):
 
         if self.head_type == 'MLP':
             if not self.multihead:
-                self.fc = torch.nn.Linear(embedding_dim*max_length, len(self.target_cols))
+                self.fc = torch.nn.Linear(embedding_dim*(max_length
+                                                         if not W_CLS_ONLY_FIX
+                                                         else 1), len(self.target_cols))
             else:
-                self.fcs = torch.nn.ModuleList([torch.nn.Linear(embedding_dim*max_length, 1)
+                self.fcs = torch.nn.ModuleList([torch.nn.Linear(embedding_dim*(max_length
+                                                                               if not W_CLS_ONLY_FIX
+                                                                               else 1), 1)
                                                 for _ in range(len(self.target_cols))])
         elif self.head_type == 'GRU':
             if not self.multihead:
@@ -169,8 +175,12 @@ class BERTClass(torch.nn.Module):
         # embedded = [batch size, sent len, emb dim]
 
         if self.head_type == 'MLP':
-            flat_embedded = torch.flatten(embedded, start_dim=1)
+            flat_embedded = torch.flatten(embedded, start_dim=1) \
+                            if not W_CLS_ONLY_FIX \
+                            else embedded[:, 0]
             # flat_embedded = [batch size, sent len * emb dim]
+            #                 if W_CLS_ONLY_FIX
+            #                 else [batch size, emb dim]
 
             dropout = self.dropout(flat_embedded)
 
@@ -369,13 +379,22 @@ class BERTClass(torch.nn.Module):
 
         optimizer = AdamW(params=self.parameters(), lr=LEARNING_RATE, weight_decay=1e-6, no_deprecation_warning=True)
 
-        self.train_dataset = BERTDataset(self.dl.train, tokenizer, self.max_length, target_cols=self.dl.get_target_cols(), train=True)
-        self.valid_dataset = BERTDataset(self.dl.validation, tokenizer, self.max_length, target_cols=self.dl.get_target_cols())
+        if not W_NEW_DATA:
+            train_df_for_BERTDataset = self.dl.train
+            validation_df_for_BERTDataset = self.dl.validation
+        else:
+            train_df_for_BERTDataset = self.loader_train_dataset.workingTable
+            validation_df_for_BERTDataset = self.loader_valid_dataset.workingTable
 
-        train_loader = DataLoader(self.train_dataset, batch_size=TRAIN_BATCH_SIZE, num_workers=4, shuffle=True,
-                                  pin_memory=True)
-        valid_loader = DataLoader(self.valid_dataset, batch_size=TRAIN_BATCH_SIZE, num_workers=4, shuffle=False,
-                                  pin_memory=True)
+        self.train_dataset = BERTDataset(train_df_for_BERTDataset, tokenizer, self.max_length,
+                                         target_cols=self.target_cols, train=True)
+        self.valid_dataset = BERTDataset(validation_df_for_BERTDataset, tokenizer, self.max_length,
+                                         target_cols=self.target_cols)
+
+        train_loader = DataLoader(self.train_dataset, batch_size=TRAIN_BATCH_SIZE,
+                                  num_workers=4, shuffle=True, pin_memory=True)
+        valid_loader = DataLoader(self.valid_dataset, batch_size=TRAIN_BATCH_SIZE,
+                                  num_workers=4, shuffle=False, pin_memory=True)
 
         print('Starting training...')
         best_val_loss = np.inf
@@ -406,10 +425,15 @@ class BERTClass(torch.nn.Module):
 
         self.to(device)
 
-        self.valid_dataset = BERTDataset(self.dl.validation, tokenizer, self.max_length,
-                                         target_cols=self.dl.get_target_cols())
-        valid_loader = DataLoader(self.valid_dataset, batch_size=TRAIN_BATCH_SIZE, num_workers=4, shuffle=False,
-                                  pin_memory=True)
+        if not W_NEW_DATA:
+            validation_df_for_BERTDataset = self.dl.validation
+        else:
+            validation_df_for_BERTDataset = self.loader_valid_dataset.workingTable
+
+        self.valid_dataset = BERTDataset(validation_df_for_BERTDataset, tokenizer,
+                                         self.max_length, target_cols=self.target_cols)
+        valid_loader = DataLoader(self.valid_dataset, batch_size=TRAIN_BATCH_SIZE,
+                                  num_workers=4, shuffle=False, pin_memory=True)
 
         self.best_model_evaluation(valid_loader, device, evaluation_only=True)
     
