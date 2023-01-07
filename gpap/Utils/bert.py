@@ -9,6 +9,59 @@ from transformers import BertModel, AutoConfig
 
 from settings import *
 
+def F1_as_evaluator(y_pred, y_true, target_cols):
+    """
+    F1 computed as in https://github.com/touche-webis-de/touche-code/blob/main/semeval23/human-value-detection/evaluator/evaluator.py
+
+    :param y_pred: numpy array with the predicted values. Shape: [total_batches * batch_size, length of target_cols]
+    :param y_true: numpy array of the true values. Shape: [total_batches * batch_size, length of target_cols]
+    :param target_cols: List of the selected values
+    :return: fmeasure, precision, recall, fmeasures, precisions, recalls
+    """
+
+    def initializeCounter(availableValues):
+        counter = {}
+        for value_ in availableValues:
+            counter[value_] = 0
+        return counter
+
+    relevants = initializeCounter(target_cols)
+    positives = initializeCounter(target_cols)
+    truePositives = initializeCounter(target_cols)
+
+    for labels in y_true:
+        for value, label in enumerate(labels):
+            if label == 1:
+                relevants[target_cols[value]] += 1
+
+    for argumentId, labels in enumerate(y_pred):
+        for value, label in enumerate(labels):
+            if label == 1:
+                positives[target_cols[value]] += 1
+                if y_true[argumentId][value] == 1:
+                    truePositives[target_cols[value]] += 1
+
+    precisions = []
+    recalls = []
+    fmeasures = []
+    for value in target_cols:
+        if relevants[value] != 0:
+            precision = 0
+            if positives[value] != 0:
+                precision = truePositives[value] / positives[value]
+            precisions.append(precision)
+            recall = truePositives[value] / relevants[value]
+            recalls.append(recall)
+            fmeasure = 0
+            if precision + recall != 0:
+                fmeasure = 2 * precision * recall / (precision + recall)
+            fmeasures.append(fmeasure)
+    precision = sum(precisions) / len(precisions)
+    recall = sum(recalls) / len(recalls)
+    fmeasure = 2 * precision * recall / (precision + recall)
+
+    return fmeasure, precision, recall, fmeasures, precisions, recalls
+
 def BCE_loss(outputs, targets, weights=None):
 
     return torch.nn.BCEWithLogitsLoss(weight=weights)(outputs, targets)
@@ -51,8 +104,9 @@ class BERTDataset(Dataset):
         self.text = df.Text
         self.tokenizer = tokenizer
         self.targets = df[target_cols].values
+        self.train = train
 
-        if train and W_LOSS_WEIGHTS:
+        if self.train and W_LOSS_WEIGHTS:
             # Calculations based on:
             # https://naadispeaks.wordpress.com/2021/07/31/handling-imbalanced-classes-with-weighted-loss-in-pytorch/
 
@@ -69,9 +123,25 @@ class BERTDataset(Dataset):
     
     def __getitem__(self, index):
         text = self.text[index]
+
+        # Replace some words with '[MASK]'
+        if self.train and W_MASKING:
+
+            # Create an array of indices of the worlds to be masked and mask the 'text'
+            np_of_words = np.array(list(text.split(' ')))
+            masked_np_of_words = np_of_words.copy()
+            mask_indices = np.random.randint(np_of_words.shape[0], size=(round(MAKING_PERC*np_of_words.shape[0])))
+            mask_indices_to_be_kept = np_of_words[mask_indices] != '[SEP]'
+            kept_mask_indices = mask_indices[mask_indices_to_be_kept]
+            masked_np_of_words[kept_mask_indices] = '[MASK]'
+
+            text = ''
+            for word_id, word in enumerate(masked_np_of_words):
+                text += word + (' ' if word_id < masked_np_of_words.shape[0] else '')
+
         inputs = self.tokenizer.encode_plus(text,
                                             truncation=True,
-                                            add_special_tokens=False,
+                                            add_special_tokens=True if ADD_SPECIAL_TOKENS else False,
                                             max_length=self.max_len,
                                             padding='max_length',
                                             return_token_type_ids=False)
@@ -298,9 +368,11 @@ class BERTClass(torch.nn.Module):
         v_conc_pred_one_hot = np.concatenate(v_pred_one_hot, axis=0)
         v_conc_ground_truth = np.concatenate(v_ground_truth, axis=0)
         f1_micro_average = f1_score(y_true=v_conc_ground_truth, y_pred=v_conc_pred_one_hot, average='micro', zero_division=0)
+        f, pr, rec, fs, prs, recs = F1_as_evaluator(v_conc_pred_one_hot, v_conc_ground_truth, self.target_cols)
 
         print(f'Epoch: {epoch}, Loss:  {sum(loss_list) / len(loss_list):.2f}, '
-              f'Val Loss: {sum(v_loss_list) / len(v_loss_list):.2f}, Val F1: {f1_micro_average:.2f}')
+              f'Val Loss: {sum(v_loss_list) / len(v_loss_list):.2f}, Val Micro F1: {f1_micro_average:.2f}, '
+              f'Val evaluator F1: {f: .2f}')
 
         return sum(v_loss_list) / len(v_loss_list), f1_micro_average
 
@@ -356,11 +428,17 @@ class BERTClass(torch.nn.Module):
         v_clr_dict = classification_report(v_conc_ground_truth,
                                            v_conc_pred_one_hot,
                                            zero_division=0)
+        final_f, final_pr, final_rec, final_fs, final_prs, final_recs = F1_as_evaluator(v_conc_pred_one_hot, v_conc_ground_truth, self.target_cols)
 
         print(f'Best model: \n'
-              f'Val Loss: {sum(final_v_loss_list) / len(final_v_loss_list):.2f}, Val F1: {final_f1_micro_average:.2f}\n'
-              f'Classification Report: \n {v_clr_dict}')
+              f'Val Loss: {sum(final_v_loss_list) / len(final_v_loss_list):.2f}, Val micro F1: {final_f1_micro_average:.2f}\n'
+              f'Classification Report: \n {v_clr_dict}\n'
+              f' Val evaluator F1: {final_f:.2f}, Val evaluator Precision: {final_pr:.2f}, Val evaluator Recall: {final_rec:.2f}\n')
 
+        for value_col_id, value_col in enumerate(self.target_cols):
+            print("measure {\n key: \"Precision " + value_col + "\"\n value: \"" + str(final_prs[value_col_id]) + "\"\n}\n" +
+                  "measure {\n key: \"Recall " + value_col + "\"\n value: \"" + str(final_recs[value_col_id]) + "\"\n}\n" +
+                  "measure {\n key: \"F1 " + value_col + "\"\n value: \"" + str(final_fs[value_col_id]) + "\"\n}\n")
 
     def train_(self):
 
