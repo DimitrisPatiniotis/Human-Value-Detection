@@ -52,16 +52,16 @@ encoded_dataset = common.encodeDataset(dataset, labels, tokenizer)
 #             np.unique(encoded_dataset["validation"][:]["input_ids"]).tolist() + \
 #             np.unique(encoded_dataset["test"][:]["input_ids"]).tolist()
 # unique_input_ids = np.unique(input_ids)
-# 
+#
 # print(unique_input_ids, len(unique_input_ids))
 
 def instantiate_model(pretrained_model_name, freezeLayers=False):
     model = AutoModelForSequenceClassification.from_pretrained(
     # model = AutoModelForTokenClassification.from_pretrained(
     # model = AutoModel.from_pretrained(
-                pretrained_model_name, 
+                pretrained_model_name,
                 problem_type="multi_label_classification",
-                output_hidden_states=False,
+                output_hidden_states=True,
                 num_labels=len(labels),
                 id2label=id2label,
                 label2id=label2id)
