@@ -34,6 +34,7 @@ class CustomTrainer(Trainer):
             outputs = SequenceClassifierOutput(
                 loss=outputs.loss,
                 logits=outputs.logits,
+                hidden_states=outputs.hidden_states[-1].detach().cpu(),
                 attentions=outputs.attentions,
             )
         return (loss, outputs) if return_outputs else loss

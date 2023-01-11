@@ -52,14 +52,14 @@ def getDatasets(df_train, df_validation, df_test):
     dataset            = DatasetDict({ "train": train_dataset, "validation": validation_dataset, "test": test_dataset })
     return dataset
 
-def preprocess_data(examples, labels, tokenizer):
+def preprocess_data(examples, labels, tokenizer, max_length=200):
     # take a batch of texts
     premise    = examples["Premise"]
     # conclusion = examples["Conclusion"]
     conclusion = examples["C+S"]
     # stance     = examples["Stance"]
     # encode them
-    encoding = tokenizer(conclusion, premise, padding="max_length", truncation=True, max_length=180)
+    encoding = tokenizer(conclusion, premise, padding="max_length", truncation=True, max_length=max_length)
     # add labels
     labels_batch = {k: examples[k] for k in examples.keys() if k in labels}
     ## Test may not have labels...
@@ -74,9 +74,9 @@ def preprocess_data(examples, labels, tokenizer):
 
     return encoding
 
-def encodeDataset(dataset, labels, tokenizer):
+def encodeDataset(dataset, labels, tokenizer, max_length=200):
     encoded_dataset = dataset.map(
-        partial(preprocess_data, labels=labels, tokenizer=tokenizer),
+        partial(preprocess_data, labels=labels, tokenizer=tokenizer, max_length=max_length),
         batched=True)
     encoded_dataset['train'] = encoded_dataset['train'].remove_columns(dataset['train'].column_names)
     encoded_dataset['validation'] = encoded_dataset['validation'].remove_columns(dataset['validation'].column_names)
