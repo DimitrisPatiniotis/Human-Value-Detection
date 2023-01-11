@@ -25,9 +25,9 @@ label2id = {label:idx for idx, label in enumerate(labels)}
 ############################################################
 pretrained_model_name = "bert-base-uncased"
 # pretrained_model_name = "distilbert-base-uncased"
-batch_size            = 8
+batch_size            = 4
 metric_name           = "f1"
-num_train_epochs      = 15
+num_train_epochs      = 130
 freeze_layers_bert    = False
 
 args = TrainingArguments(
@@ -81,7 +81,7 @@ model = instantiate_model(pretrained_model_name, freeze_layers_bert)
 #print(outputs)
 #print(len(outputs['hidden_states']))
 
-trainer = Trainer(
+trainer = CustomTrainer(
         model,
         args,
         train_dataset = encoded_dataset["train"],
@@ -89,11 +89,15 @@ trainer = Trainer(
         tokenizer=tokenizer,
         compute_metrics=partial(common.compute_metrics, labels=labels)
 )
+#common.show_memory("Memory before Training")
 print("############### Training:")
 trainer.train()
+#common.show_memory("Memory after Training")
 print("############### Evaluation:")
 common.save_eval_result_df = df_validation
 results = trainer.evaluate()
+trainer.save_model(f"best_{num_train_epochs}_{batch_size}")
+#common.show_memory("Memory after Evaluation")
 common.save_eval_result_df = None
 print(results)
 cmd = subprocess.run(["python", "evaluator.py",

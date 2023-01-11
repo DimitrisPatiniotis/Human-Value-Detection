@@ -17,6 +17,13 @@ def setSeeds(seed=2022):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
+def show_memory(text=''):
+  t = torch.cuda.get_device_properties(0).total_memory
+  c = torch.cuda.memory_cached(0)
+  a = torch.cuda.memory_allocated(0)
+  f = c-a  # free inside cache
+  print(f'\n\n{text}\nTotal: {t}\nCached: {c} \nAllocated: {a} \nFree in cache: {f}\n\n')
+
 dataLabels = ['Argument ID', 'Conclusion', 'Stance', 'Premise', '__index_level_0__', 'P+S', 'C+S']
 def getData(datadir):
     df_args = pd.read_csv(datadir + '/arguments-training.tsv', sep = '\t')

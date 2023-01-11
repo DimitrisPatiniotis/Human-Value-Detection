@@ -1,9 +1,11 @@
-import common
+from common import common
 from transformers import AutoTokenizer
-from transformers import AutoModelForSequenceClassification
+from transformers import AutoModel, AutoModelForSequenceClassification, AutoModelForTokenClassification
 from transformers import TrainingArguments, Trainer
+from common.trainers import CustomTrainer
 from functools import partial
 import subprocess
+import numpy as np
 
 common.setSeeds(2022)
 
@@ -13,7 +15,7 @@ df_train, df_validation, df_test = common.getData(datadir)
 dataset = common.getDatasets(df_train, df_validation, df_test)
 
 ## Get dataset labels...
-labels = [label for label in dataset['train'].features.keys() if label not in ['Argument ID', 'Conclusion', 'Stance', 'Premise', '__index_level_0__']]
+labels = [label for label in dataset['train'].features.keys() if label not in common.dataLabels]
 id2label = {idx:label for idx, label in enumerate(labels)}
 label2id = {label:idx for idx, label in enumerate(labels)}
 # print("Labels:", labels)
@@ -22,10 +24,10 @@ label2id = {label:idx for idx, label in enumerate(labels)}
 ## Parameters
 ############################################################
 pretrained_model_name = "bert-base-uncased"
-pretrained_model_name = "distilbert-base-uncased"
-batch_size            = 8
+# pretrained_model_name = "distilbert-base-uncased"
+batch_size            = 4
 metric_name           = "f1"
-num_train_epochs      = 15
+num_train_epochs      = 130
 freeze_layers_bert    = False
 
 args = TrainingArguments(
@@ -46,13 +48,23 @@ args = TrainingArguments(
 tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
 encoded_dataset = common.encodeDataset(dataset, labels, tokenizer)
 
+# input_ids = np.unique(encoded_dataset["train"][:]["input_ids"]).tolist() + \
+#             np.unique(encoded_dataset["validation"][:]["input_ids"]).tolist() + \
+#             np.unique(encoded_dataset["test"][:]["input_ids"]).tolist()
+# unique_input_ids = np.unique(input_ids)
+#
+# print(unique_input_ids, len(unique_input_ids))
+
 def instantiate_model(pretrained_model_name, freezeLayers=False):
-    model = AutoModelForSequenceClassification.from_pretrained(pretrained_model_name, 
-                                                               problem_type="multi_label_classification",
-                                                               output_hidden_states=False,
-                                                               num_labels=len(labels),
-                                                               id2label=id2label,
-                                                               label2id=label2id)
+    model = AutoModelForSequenceClassification.from_pretrained(
+    # model = AutoModelForTokenClassification.from_pretrained(
+    # model = AutoModel.from_pretrained(
+                pretrained_model_name,
+                problem_type="multi_label_classification",
+                output_hidden_states=True,
+                num_labels=len(labels),
+                id2label=id2label,
+                label2id=label2id)
     ## Freeze layers...
     if freezeLayers:
         for name, param in model.named_parameters():
@@ -62,7 +74,14 @@ def instantiate_model(pretrained_model_name, freezeLayers=False):
     return model
 
 model = instantiate_model(pretrained_model_name, freeze_layers_bert)
-trainer = Trainer(
+# print(model)
+
+#forward pass
+#outputs = model(input_ids=encoded_dataset['train']['input_ids'][0].unsqueeze(0))
+#print(outputs)
+#print(len(outputs['hidden_states']))
+
+trainer = CustomTrainer(
         model,
         args,
         train_dataset = encoded_dataset["train"],
@@ -70,11 +89,15 @@ trainer = Trainer(
         tokenizer=tokenizer,
         compute_metrics=partial(common.compute_metrics, labels=labels)
 )
+#common.show_memory("Memory before Training")
 print("############### Training:")
 trainer.train()
+#common.show_memory("Memory after Training")
 print("############### Evaluation:")
 common.save_eval_result_df = df_validation
 results = trainer.evaluate()
+trainer.save_model(f"best_{num_train_epochs}_{batch_size}")
+#common.show_memory("Memory after Evaluation")
 common.save_eval_result_df = None
 print(results)
 cmd = subprocess.run(["python", "evaluator.py",
