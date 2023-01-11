@@ -30,11 +30,11 @@ class CustomTrainer(Trainer):
         # print("compute_loss:", loss, hidden_states[12][0], len(hidden_states), len(hidden_states[12][0]), return_outputs)
         # exit(0)
         if return_outputs:
-            ## Remove hidden_states, or we will exhaust VRAM.
+            ## Move hidden_states to cpu(), or we will exhaust GPU RAM.
             outputs = SequenceClassifierOutput(
                 loss=outputs.loss,
                 logits=outputs.logits,
-                hidden_states=outputs.hidden_states[-1].detach().cpu(),
+                hidden_states=outputs.hidden_states[-1].cpu(),
                 attentions=outputs.attentions,
             )
         return (loss, outputs) if return_outputs else loss
