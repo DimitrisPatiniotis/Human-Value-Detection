@@ -6,6 +6,7 @@ from datasets import Dataset, DatasetDict
 from functools import partial
 from sklearn.metrics import f1_score, roc_auc_score, accuracy_score, precision_score, recall_score, precision_recall_fscore_support, fbeta_score
 from sklearn.metrics import multilabel_confusion_matrix
+from sklearn.utils.class_weight import compute_class_weight
 from transformers import EvalPrediction
 import os
 import csv
@@ -71,6 +72,9 @@ def preprocess_data(examples, labels, tokenizer, max_length=200):
             labels_matrix[:, idx] = labels_batch[label]
 
         encoding["labels"] = labels_matrix.tolist()
+    else:
+        labels_matrix = np.zeros((len(premise), len(labels)))
+        encoding["labels"] = labels_matrix.tolist()
 
     return encoding
 
@@ -78,11 +82,20 @@ def encodeDataset(dataset, labels, tokenizer, max_length=200):
     encoded_dataset = dataset.map(
         partial(preprocess_data, labels=labels, tokenizer=tokenizer, max_length=max_length),
         batched=True)
-    encoded_dataset['train'] = encoded_dataset['train'].remove_columns(dataset['train'].column_names)
+    encoded_dataset['train']      = encoded_dataset['train'].remove_columns(dataset['train'].column_names)
     encoded_dataset['validation'] = encoded_dataset['validation'].remove_columns(dataset['validation'].column_names)
+    encoded_dataset['test']       = encoded_dataset['test'].remove_columns(dataset['test'].column_names)
     encoded_dataset.set_format("torch")
     return encoded_dataset
 
+# From: https://stackoverflow.com/questions/54842067/how-to-calculate-class-weights-of-a-pandas-dataframe-for-keras
+def compute_class_weights(df, class_weight='balanced'):
+    sdf = df = df.stack().reset_index()
+    Y = sdf[df[0] == 1]['level_1']
+    class_weights = compute_class_weight(
+        class_weight=class_weight, classes=np.unique(Y), y=Y
+    )
+    return class_weights
 
 save_eval_result_df = None
 def save_eval_results(predictions, labels=[], evaluationResultsDir="evaluationResults", evaluationResultsFilename="run.tsv"):

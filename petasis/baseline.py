@@ -6,6 +6,7 @@ from common.trainers import CustomTrainer
 from functools import partial
 import subprocess
 import numpy as np
+import pandas as pd
 
 common.setSeeds(2022)
 
@@ -18,7 +19,9 @@ dataset = common.getDatasets(df_train, df_validation, df_test)
 labels = [label for label in dataset['train'].features.keys() if label not in common.dataLabels]
 id2label = {idx:label for idx, label in enumerate(labels)}
 label2id = {label:idx for idx, label in enumerate(labels)}
-# print("Labels:", labels)
+#print("Labels:", labels)
+## Get class weights...
+class_weights = common.compute_class_weights(pd.concat([df_train, df_validation], ignore_index=True, sort=False))
 
 ############################################################
 ## Parameters
@@ -28,7 +31,13 @@ pretrained_model_name = "bert-base-uncased"
 batch_size            = 4
 metric_name           = "f1"
 num_train_epochs      = 130
+use_class_weights     = True
 freeze_layers_bert    = False
+
+if use_class_weights:
+    print("Class weights: sum()=", sum(class_weights))
+    for i, lbl in enumerate(labels):
+        print(lbl, "=", class_weights[i])
 
 args = TrainingArguments(
     f"{pretrained_model_name}-finetuned-sem_eval-english",
@@ -61,7 +70,7 @@ def instantiate_model(pretrained_model_name, freezeLayers=False):
     # model = AutoModel.from_pretrained(
                 pretrained_model_name,
                 problem_type="multi_label_classification",
-                output_hidden_states=True,
+                output_hidden_states=False,
                 num_labels=len(labels),
                 id2label=id2label,
                 label2id=label2id)
@@ -89,6 +98,10 @@ trainer = CustomTrainer(
         tokenizer=tokenizer,
         compute_metrics=partial(common.compute_metrics, labels=labels)
 )
+
+if use_class_weights:
+    trainer.class_weights(weights=class_weights)
+
 #common.show_memory("Memory before Training")
 print("############### Training:")
 trainer.train()

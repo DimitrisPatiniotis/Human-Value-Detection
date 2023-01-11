@@ -3,3 +3,4 @@ transformers
 datasets
 pandas
 scikit-learn
+pykeops
