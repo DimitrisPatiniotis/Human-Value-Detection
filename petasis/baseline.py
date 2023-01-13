@@ -21,17 +21,17 @@ id2label = {idx:label for idx, label in enumerate(labels)}
 label2id = {label:idx for idx, label in enumerate(labels)}
 #print("Labels:", labels)
 ## Get class weights...
-class_weights = common.compute_class_weights(pd.concat([df_train, df_validation], ignore_index=True, sort=False))
+class_weights = common.compute_class_weights2(pd.concat([df_train, df_validation], ignore_index=True, sort=False), labels)
 
 ############################################################
 ## Parameters
 ############################################################
 pretrained_model_name = "bert-base-uncased"
 # pretrained_model_name = "distilbert-base-uncased"
-batch_size            = 4
-metric_name           = "f1"
+batch_size            = 32
+metric_name           = "loss"
 num_train_epochs      = 130
-use_class_weights     = True
+use_class_weights     = False
 freeze_layers_bert    = False
 
 if use_class_weights:

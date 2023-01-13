@@ -1,10 +1,13 @@
 from transformers import Trainer
 from transformers.modeling_outputs import SequenceClassifierOutput
-from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
+from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss, CosineEmbeddingLoss
 import numpy as np
 import torch
+from pykeops.torch import LazyTensor
 
 from collections import defaultdict, Counter
+from .kmeans import knn
+import math
 
 class CustomTrainer(Trainer):
     tokenid2embeddings = None
@@ -13,6 +16,7 @@ class CustomTrainer(Trainer):
     class_weights      = None
 
     def compute_loss(self, model, inputs, return_outputs=False):
+        torch.autograd.set_detect_anomaly(True)
         # loss has been caluclated as BCEWithLogitsLoss(logits, labels)
         loss, outputs     = super().compute_loss(model=model, inputs=inputs, return_outputs=True)
         #print("LOSS:", loss, outputs.logits.shape, self.is_model_parallel )
@@ -35,6 +39,55 @@ class CustomTrainer(Trainer):
                         continue
                     self.tokenid2embeddings[token].append(example_last_hidden_state[token_index].cpu().tolist())
                     #print(example_index, token_index, token)
+        if self.tokenid2centroids is not None:
+            input_ids         = inputs.get("input_ids").cpu()
+            last_hidden_state = outputs.get("hidden_states")[-1]
+            t_loss = None
+            for example_index, example in enumerate(input_ids):
+                example_last_hidden_state = last_hidden_state[example_index]
+                for token_index, token in enumerate(example):
+                    token = token.item()
+                    if token < 1000:
+                        continue
+                    if token in self.tokenid2centroids:
+                        # print("Found:", token)
+                        x = example_last_hidden_state[token_index]
+                        dm = None
+                        for c in self.tokenid2centroids[token].to(x.device):
+                            # d = torch.sqrt(((x - c) ** 2).sum())
+                            d = ((x - c) ** 2).sum()
+                            if math.isnan(d):
+                                # print("NAN:", token, dm)
+                                # print("d:", token, d)
+                                # print("x:", token, x)
+                                # print("c:", token, c)
+                                continue
+                            if dm is None:
+                                dm = d
+                            else:
+                                if d < dm:
+                                    dm = d
+                            #print(dm, d)
+                        # print(token, dm)
+                        if t_loss is not None:
+                            t_loss += dm
+                        else:
+                            t_loss = dm
+                        # x = torch.unsqueeze(example_last_hidden_state[token_index], 0) # 1 * 768
+                        # x = example_last_hidden_state[token_index]
+                        # c = self.tokenid2centroids[token].float().to(x.device)
+                        # print("X:", x, x.shape)
+                        # print("C:", c, c.shape)
+                        # x_i = LazyTensor( x[None, None, :] ) # (N, 1, D) samples
+                        # c_j = LazyTensor( c[None,:,:] ) # (1, K, D) centroids
+                        # print("x_i", x_i)
+                        # print("c_j", c_j)
+                        # D_ij = ((x_i - c_j) ** 2).sum(-1)  # (N, K) symbolic squared distances
+                        # print("D_ij:", D_ij)
+                        # cl = D_ij.argmin(1, dim=1)  # Points -> Nearest cluster
+                        # print("cl:" , cl)
+            loss += t_loss
+            print("loss:", loss)
         #  for key in id2embeddings:
         #      print(key, len(id2embeddings[key]))
         # unique_input_ids = np.unique(input_ids)
@@ -55,6 +108,9 @@ class CustomTrainer(Trainer):
                 attentions=outputs.attentions,
             )
         return (loss, outputs) if return_outputs else loss
+
+    def centroids(self, centroids=None):
+        self.tokenid2centroids = centroids
 
     def class_weights(self, weights=None):
         if weights is None:

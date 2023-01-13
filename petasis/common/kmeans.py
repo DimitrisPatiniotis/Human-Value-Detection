@@ -99,3 +99,13 @@ def KMeans_cosine(x, K=10, Niter=10, verbose=True):
         )
 
     return cl, c
+
+def knn(ref, query, k):
+    ref_c   = torch.stack([ref] * query.shape[-1], dim=0).permute(0, 2, 1).reshape(-1, 2).transpose(0, 1)
+    query_c = torch.repeat_interleave(query, repeats=ref.shape[-1], dim=1)
+    print(query_c, ref_c)
+    delta = query_c - ref_c
+    distances = torch.sqrt(torch.pow(delta, 2).sum(dim=0))
+    distances = distances.view(query.shape[-1], ref.shape[-1])
+    sorted_dist, indices = torch.sort(distances, dim=-1)
+    return sorted_dist[:, :k], indices[:, :k]

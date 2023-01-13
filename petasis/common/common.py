@@ -8,6 +8,7 @@ from sklearn.metrics import f1_score, roc_auc_score, accuracy_score, precision_s
 from sklearn.metrics import multilabel_confusion_matrix
 from sklearn.utils.class_weight import compute_class_weight
 from transformers import EvalPrediction
+from collections import Counter
 import os
 import csv
 
@@ -96,6 +97,19 @@ def compute_class_weights(df, class_weight='balanced'):
         class_weight=class_weight, classes=np.unique(Y), y=Y
     )
     return class_weights
+
+def compute_class_weights2(df, labels):
+    counter = Counter()
+    for label in labels:
+        counter[label] += len(df[(df[label] > 0)])
+    total = sum(counter.values())
+    class_weights = []
+    n_classes = len(labels)
+    for label in labels:
+        # n_samples / (n_classes * np.bincount(y))
+        class_weights.append(total/ (n_classes * counter[label]))
+    # print(class_weights)
+    return np.array(class_weights)
 
 save_eval_result_df = None
 def save_eval_results(predictions, labels=[], evaluationResultsDir="evaluationResults", evaluationResultsFilename="run.tsv"):
