@@ -10,6 +10,7 @@ from collections import defaultdict, Counter
 from datasets import Dataset
 from common.kmeans import KMeans
 import torch
+import os.path
 
 use_cuda = torch.cuda.is_available()
 dtype = torch.float32 if use_cuda else torch.float64
@@ -35,10 +36,13 @@ pretrained_model_name = "./best_130_4"
 pretrained_model_name = "bert-base-uncased"
 batch_size            = 8
 metric_name           = "f1"
-num_train_epochs      = 1
+num_train_epochs      = 30
 freeze_layers_bert    = False
 number_of_centroids   = 4
 calculate_centroids   = False
+centroids_fname       = 'centroids.pt'
+if not os.path.exists(centroids_fname):
+    centroids_fname = True
 
 args = TrainingArguments(
     f"{pretrained_model_name}-finetuned-sem_eval-english",
@@ -135,11 +139,11 @@ if calculate_centroids:
             tokenid2centroids[key] = c
         #print(cl, cl.shape)
         #print(c, c.shape)
-    torch.save(tokenid2centroids, 'centroids.pt')
+    torch.save(tokenid2centroids, centroids_fname)
     trainer.tokenid2embeddings = None
 else:
-    print("Loading Centroids from centroids.pt!")
-    tokenid2centroids = torch.load('centroids.pt')
+    print(f"Loading Centroids from {centroids_fname}!")
+    tokenid2centroids = torch.load(centroids_fname)
 trainer.centroids(tokenid2centroids)
 
 # outputs = model(input_ids=encoded_dataset['validation']['input_ids'][0].unsqueeze(0))

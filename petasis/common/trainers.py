@@ -37,7 +37,10 @@ class CustomTrainer(Trainer):
                     token = token.item()
                     if token < 1000:
                         continue
-                    self.tokenid2embeddings[token].append(example_last_hidden_state[token_index].cpu().tolist())
+                    embedding = example_last_hidden_state[token_index].cpu()
+                    # Perform a simple check that it is valid:
+                    if not math.isnan(embedding.sum()):
+                        self.tokenid2embeddings[token].append(embedding.tolist())
                     #print(example_index, token_index, token)
         if self.tokenid2centroids is not None:
             input_ids         = inputs.get("input_ids").cpu()
@@ -86,8 +89,8 @@ class CustomTrainer(Trainer):
                         # print("D_ij:", D_ij)
                         # cl = D_ij.argmin(1, dim=1)  # Points -> Nearest cluster
                         # print("cl:" , cl)
-            loss += t_loss
-            print("loss:", loss)
+            # print("loss:", loss, "t_loss", 0.00001 * t_loss)
+            loss += 0.00001 * t_loss
         #  for key in id2embeddings:
         #      print(key, len(id2embeddings[key]))
         # unique_input_ids = np.unique(input_ids)
