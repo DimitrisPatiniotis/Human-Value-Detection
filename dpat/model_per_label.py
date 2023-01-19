@@ -11,10 +11,9 @@ from transformers import AutoModel, BertTokenizer
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
 
 def get_labels():
-    l = ['Self-direction: thought', 'Self-direction: action', 'Stimulation	Hedonism', 'Achievement	Power: dominance',
-            'Power: resources', 'Face Security: personal', 'Security: societal', 'Tradition', 'Conformity: rules',
-            'Conformity: interpersonal', 'Humility', 'Benevolence: caring', 'Benevolence: dependability',
-            'Universalism: concern', 'Universalism: nature', 'Universalism: tolerance', 'Universalism: objectivity']
+    with open('../Data/value-categories.json') as jsonFile:
+        value_categories_json = json.load(jsonFile)
+    l = list(value_categories_json.keys())
     return l
 
 def load_dataset(selected_label):
