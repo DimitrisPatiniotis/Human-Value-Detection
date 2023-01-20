@@ -11,6 +11,7 @@ from transformers import EvalPrediction
 from collections import Counter
 import os
 import csv
+import math
 
 def setSeeds(seed=2022):
     random.seed(seed)
@@ -26,62 +27,78 @@ def show_memory(text=''):
   f = c-a  # free inside cache
   print(f'\n\n{text}\nTotal: {t}\nCached: {c} \nAllocated: {a} \nFree in cache: {f}\n\n')
 
-dataLabels = ['Argument ID', 'Conclusion', 'Stance', 'Premise', '__index_level_0__', 'P+S', 'C+S']
+dataLabels = ['Argument ID', 'Conclusion', 'Stance', 'Premise', '__index_level_0__', 'P+S', 'C+S', 'stance_boolean']
 def getData(datadir):
     df_args = pd.read_csv(datadir + '/arguments-training.tsv', sep = '\t')
     df_args['P+S'] = df_args[['Premise',    'Stance']].apply(lambda x: ' '.join(x), axis=1)
     df_args['C+S'] = df_args[['Conclusion', 'Stance']].apply(lambda x: ' '.join(x), axis=1)
+    df_args['stance_boolean'] = df_args['Stance'].map({"against": 0, "in favor of": 1, "in favour of": 1})
+    if df_args['stance_boolean'].isnull().values.any():
+        raise Exception(f"NAN problem in data 1")
     df_lbls = pd.read_table(datadir + '/labels-training.tsv')
     df_train = df_args.merge(df_lbls, how="left", on="Argument ID")
 
     df_args = pd.read_csv(datadir + '/arguments-validation.tsv', sep = '\t')
     df_args['P+S'] = df_args[['Premise',    'Stance']].apply(lambda x: ' '.join(x), axis=1)
     df_args['C+S'] = df_args[['Conclusion', 'Stance']].apply(lambda x: ' '.join(x), axis=1)
+    df_args['stance_boolean'] = df_args['Stance'].map({"against": 0, "in favor of": 1, "in favour of": 1})
+    if df_args['stance_boolean'].isnull().values.any():
+        raise Exception(f"NAN problem in data 1")
     df_lbls = pd.read_table(datadir + '/labels-validation.tsv')
     df_validation = df_args.merge(df_lbls, how="left", on="Argument ID")
+    #print(df_validation[['Argument ID', "stance_boolean", "Stance"]].to_string())
+    #exit(0)
 
     df_args = pd.read_table(datadir + '/arguments-test.tsv')
     df_args['P+S'] = df_args[['Premise',    'Stance']].apply(lambda x: ' '.join(x), axis=1)
     df_args['C+S'] = df_args[['Conclusion', 'Stance']].apply(lambda x: ' '.join(x), axis=1)
+    df_args['stance_boolean'] = df_args['Stance'].map({"against": 0, "in favor of": 1, "in favour of": 1})
+    if df_args['stance_boolean'].isnull().values.any():
+        raise Exception(f"NAN problem in data 1")
     df_test = df_args
 
     return df_train, df_validation, df_test
 
 def getDatasets(df_train, df_validation, df_test):
-    train_dataset      = Dataset.from_pandas(df_train,      split="train")
+    train_dataset      = Dataset.from_pandas(df_train.truncate(after=200),      split="train")
     validation_dataset = Dataset.from_pandas(df_validation, split="validation")
     test_dataset       = Dataset.from_pandas(df_test,       split="test")
     dataset            = DatasetDict({ "train": train_dataset, "validation": validation_dataset, "test": test_dataset })
     return dataset
 
-def preprocess_data(examples, labels, tokenizer, max_length=200):
+def preprocess_data(examples, labels, tokenizer, max_length=200, task_ids=[0], sent1="C+S", sent2="Premise"):
     # take a batch of texts
-    premise    = examples["Premise"]
+    sentA = examples[sent1]
     # conclusion = examples["Conclusion"]
-    conclusion = examples["C+S"]
+    sentB = examples[sent2]
     # stance     = examples["Stance"]
     # encode them
-    encoding = tokenizer(conclusion, premise, padding="max_length", truncation=True, max_length=max_length)
+    encoding = tokenizer(sentA, sentB, padding="max_length", truncation=True, max_length=max_length)
     # add labels
     labels_batch = {k: examples[k] for k in examples.keys() if k in labels}
     ## Test may not have labels...
     if (len(labels_batch)):
         # create numpy array of shape (batch_size, num_labels)
-        labels_matrix = np.zeros((len(premise), len(labels)))
+        labels_matrix = np.zeros((len(sentA), len(labels)))
         # fill numpy array
         for idx, label in enumerate(labels):
             labels_matrix[:, idx] = labels_batch[label]
 
         encoding["labels"] = labels_matrix.tolist()
     else:
-        labels_matrix = np.zeros((len(premise), len(labels)))
+        labels_matrix = np.zeros((len(sentA), len(labels)))
         encoding["labels"] = labels_matrix.tolist()
+    # Is it a multitask run?
+    if len(task_ids) > 0:
+        encoding["labels_stance"] = examples["stance_boolean"] # Interpreted as class indices...
+    #encoding["task_ids"] = [task_ids[0]] * len(encoding["labels"])
 
     return encoding
 
-def encodeDataset(dataset, labels, tokenizer, max_length=200):
+def encodeDataset(dataset, labels, tokenizer, max_length=200, sent1="C+S", sent2="Premise", task_ids=[0]):
     encoded_dataset = dataset.map(
-        partial(preprocess_data, labels=labels, tokenizer=tokenizer, max_length=max_length),
+        partial(preprocess_data, labels=labels, tokenizer=tokenizer, max_length=max_length,
+        sent1=sent1, sent2=sent2, task_ids=task_ids),
         batched=True)
     encoded_dataset['train']      = encoded_dataset['train'].remove_columns(dataset['train'].column_names)
     encoded_dataset['validation'] = encoded_dataset['validation'].remove_columns(dataset['validation'].column_names)
@@ -111,6 +128,16 @@ def compute_class_weights2(df, labels):
     # print(class_weights)
     return np.array(class_weights)
 
+def compute_positive_weights(df, labels):
+    counter = Counter()
+    for label in labels:
+        counter[label] += len(df[(df[label] > 0)])
+    total = len(df.index)
+    pos_weights = []
+    for label in labels:
+        pos_weights.append(total / counter[label])
+    return torch.from_numpy(np.array(pos_weights))
+
 save_eval_result_df = None
 def save_eval_results(predictions, labels=[], evaluationResultsDir="evaluationResults", evaluationResultsFilename="run.tsv"):
     if (save_eval_result_df is None):
@@ -137,19 +164,36 @@ metrics = {
     'f1': [],
     'f1_m': []
 }
+def multi_label_metrics_do(y_true, y_pred, prefix=""):
+    precision, recall, f1_m, _ = precision_recall_fscore_support(y_true=y_true, y_pred=y_pred, average='macro')
+    f1 = 2 * precision * recall / (precision + recall)
+    if math.isnan(f1):
+        f1 = 0.0
+    return {
+        f'{prefix}p': precision,
+        f'{prefix}r': recall,
+        f'{prefix}f1':  f1,
+        f'{prefix}f1_m': f1_m
+    }
+
 # source: https://jesusleal.io/2021/04/21/Longformer-multilabel-classification/
 def multi_label_metrics(predictions, true_labels, threshold=0.5, labels=[]):
+    ## We assume that the main task is the first task, in case of multitasking...
+    preds  = predictions[0] if isinstance(predictions, tuple) else predictions
+    y_true = true_labels[0] if isinstance(true_labels, tuple) else true_labels
+
     # first, apply sigmoid on predictions which are of shape (batch_size, num_labels)
     sigmoid = torch.nn.Sigmoid()
-    probs = sigmoid(torch.Tensor(predictions))
+    probs = sigmoid(torch.Tensor(preds))
     # next, use threshold to turn them into integer predictions
     y_pred = np.zeros(probs.shape)
     y_pred[np.where(probs >= threshold)] = 1
+
     # Save results...
     save_eval_results(y_pred, labels=labels)
+
     # finally, compute metrics
-    y_true = true_labels
-    precision, recall, f1, _ = precision_recall_fscore_support(y_true=y_true, y_pred=y_pred, average='macro')
+    #precision, recall, f1_m, _ = precision_recall_fscore_support(y_true=y_true, y_pred=y_pred, average='macro')
     #precision_micro_average = precision_score(y_true=y_true, y_pred=y_pred, average='micro')
     #recall_micro_average    = recall_score   (y_true=y_true, y_pred=y_pred, average='micro')
     #f1_micro_average        = f1_score       (y_true=y_true, y_pred=y_pred, average='micro')
@@ -158,21 +202,37 @@ def multi_label_metrics(predictions, true_labels, threshold=0.5, labels=[]):
     #f1_macro_average        = f1_score       (y_true=y_true, y_pred=y_pred, average='macro')
     #roc_auc                 = roc_auc_score(y_true, y_pred, average = 'micro')
     #accuracy                = accuracy_score(y_true, y_pred)
-    mcm = multilabel_confusion_matrix(y_true=y_true, y_pred=y_pred, labels=np.arange(len(labels)))
-    # return as dictionary
-    metrics = {'p': precision,
-               'r': recall,
-               'f1':  2 * precision * recall / (precision + recall),
-               'f1_m': f1
-               # 'roc_auc': roc_auc,
-               # 'accuracy': accuracy,
-               # 'mcm': mcm.tolist()
-              }
+    # mcm = multilabel_confusion_matrix(y_true=y_true, y_pred=y_pred, labels=np.arange(len(labels)))
+    # f1 = 2 * precision * recall / (precision + recall)
+    # if math.isnan(f1):
+    #     f1 = 0.0
+    # # return as dictionary
+    # metrics = {'p': precision,
+    #            'r': recall,
+    #            'f1':  f1,
+    #            'f1_m': f1_m
+    #            # 'roc_auc': roc_auc,
+    #            # 'accuracy': accuracy,
+    #            # 'mcm': mcm.tolist()
+    #           }
+    metrics = multi_label_metrics_do(y_true=y_true, y_pred=y_pred)
+    if isinstance(true_labels, tuple):
+        for task in range(1, len(true_labels)):
+            preds  = predictions[task]
+            y_true = true_labels[task]
+            nl = torch.nn.Softmax(dim=1)
+            probs = nl(torch.Tensor(preds))
+            y_pred = probs.argmax(dim=1)
+            metrics = metrics | multi_label_metrics_do(y_true=y_true, y_pred=y_pred, prefix=str(task))
     return metrics
 
 def compute_metrics(p: EvalPrediction, labels=[]):
     preds = p.predictions[0] if isinstance(p.predictions,
             tuple) else p.predictions
+    # lbls  = p.label_ids[0] if isinstance(p.label_ids,
+    #         tuple) else p.label_ids
+    # print("p.predictions:", p.predictions, len(p.predictions), type(p.predictions), type(p.predictions[0]), type(p.predictions[1]))
+    # print("preds:", preds, type(preds))
     result = multi_label_metrics(
         predictions=preds,
         true_labels=p.label_ids,

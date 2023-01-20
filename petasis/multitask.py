@@ -1,8 +1,6 @@
 from common import common
-from transformers import AutoTokenizer
-from transformers import AutoModel, AutoModelForSequenceClassification, AutoModelForTokenClassification
-from transformers import TrainingArguments, Trainer
-from common.trainers import CustomTrainer
+from common.multitask import Task, TaskLayer, MultiTaskModel
+from transformers import AutoTokenizer, TrainingArguments, Trainer
 from functools import partial
 import subprocess
 import numpy as np
@@ -22,25 +20,32 @@ label2id = {label:idx for idx, label in enumerate(labels)}
 #print("Labels:", labels)
 ## Get class weights...
 class_weights = common.compute_class_weights2(pd.concat([df_train, df_validation], ignore_index=True, sort=False), labels)
+loss_pos_weights = None
 
 ############################################################
 ## Parameters
 ############################################################
 pretrained_model_name = "bert-base-uncased"
-# pretrained_model_name = "distilbert-base-uncased"
-batch_size            = 32
-metric_name           = "loss"
-num_train_epochs      = 130
+#pretrained_model_name = "facebook/bart-base"
+batch_size            = 96
+metric_name           = "f1"
+num_train_epochs      = 16
 use_class_weights     = False
-freeze_layers_bert    = False
+use_pos_weights       = True
+freeze_layers_bert    = True
 
 if use_class_weights:
     print("Class weights: sum()=", sum(class_weights))
     for i, lbl in enumerate(labels):
         print(lbl, "=", class_weights[i])
+if use_pos_weights:
+    loss_pos_weights = common.compute_positive_weights(pd.concat([df_train, df_validation], ignore_index=True, sort=False), labels)
+    print("Positive weights: sum()=", sum(loss_pos_weights))
+    for i, lbl in enumerate(labels):
+        print(lbl, "=", loss_pos_weights[i])
 
 args = TrainingArguments(
-    f"{pretrained_model_name}-finetuned-sem_eval-english",
+    f"mt-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}",
     evaluation_strategy = "epoch",
     save_strategy = "epoch",
     learning_rate=2e-5,
@@ -52,51 +57,48 @@ args = TrainingArguments(
     metric_for_best_model=metric_name,
     #push_to_hub=True,
 )
+task_layers = [
+    TaskLayer(out_features=256, dropout_p=0.1),
+    TaskLayer(out_features=256, dropout_p=0.1),
+]
+
+tasks = [
+    Task(id=0, name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="BCEWithLogitsLoss", loss_reduction="sum", loss_pos_weight=loss_pos_weights, task_layers=task_layers),
+    Task(id=1, name="stance", num_labels=2, problem_type="single_label_classification", loss="sigmoid_focal_loss", loss_reduction="sum", labels="labels_stance")
+]
+print("Task ids:", [t.id for t in tasks])
 
 ## Tokenise dataset...
 tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
-encoded_dataset = common.encodeDataset(dataset, labels, tokenizer, 200)
+encoded_dataset = common.encodeDataset(dataset, labels, tokenizer, 200, sent1="Premise", sent2="Conclusion", task_ids=[t.id for t in tasks])
 
-# input_ids = np.unique(encoded_dataset["train"][:]["input_ids"]).tolist() + \
-#             np.unique(encoded_dataset["validation"][:]["input_ids"]).tolist() + \
-#             np.unique(encoded_dataset["test"][:]["input_ids"]).tolist()
-# unique_input_ids = np.unique(input_ids)
-#
-# print(unique_input_ids, len(unique_input_ids))
 
-def instantiate_model(pretrained_model_name, freezeLayers=False):
-    model = AutoModelForSequenceClassification.from_pretrained(
-    # model = AutoModelForTokenClassification.from_pretrained(
-    # model = AutoModel.from_pretrained(
-                pretrained_model_name,
-                problem_type="multi_label_classification",
-                output_hidden_states=False,
-                num_labels=len(labels),
-                id2label=id2label,
-                label2id=label2id)
+def instantiate_model(pretrained_model_name, tasks, freezeLayers=False):
+    model = MultiTaskModel(pretrained_model_name, tasks)
     ## Freeze layers...
     if freezeLayers:
-        for name, param in model.named_parameters():
-            if name.startswith(("bert.embeddings", "bert.encoder")):
-                param.requires_grad = False
-            #print(name, param.requires_grad)
+        model.freeze(False)
     return model
 
-model = instantiate_model(pretrained_model_name, freeze_layers_bert)
-# print(model)
+#model = instantiate_model(pretrained_model_name, tasks, freeze_layers_bert)
 
 #forward pass
 #outputs = model(input_ids=encoded_dataset['train']['input_ids'][0].unsqueeze(0))
 #print(outputs)
 #print(len(outputs['hidden_states']))
 
-trainer = CustomTrainer(
-        model,
-        args,
+def model_init(trial=None):
+    print("==============> model_init <=====================")
+    print("trial:", trial)
+    return instantiate_model(pretrained_model_name, tasks, freeze_layers_bert)
+
+trainer = Trainer(
+        args=args,
         train_dataset = encoded_dataset["train"],
         eval_dataset  = encoded_dataset["validation"],
         tokenizer=tokenizer,
-        compute_metrics=partial(common.compute_metrics, labels=labels)
+        compute_metrics=partial(common.compute_metrics, labels=labels),
+        model_init=model_init
 )
 
 if use_class_weights:
@@ -109,7 +111,7 @@ trainer.train()
 print("############### Evaluation:")
 common.save_eval_result_df = df_validation
 results = trainer.evaluate()
-trainer.save_model(f"best_{num_train_epochs}_{batch_size}")
+trainer.save_model(f"mt-best-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}")
 #common.show_memory("Memory after Evaluation")
 common.save_eval_result_df = None
 print(results)
