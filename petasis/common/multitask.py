@@ -6,6 +6,7 @@ from transformers import AutoTokenizer
 from transformers import AutoModel
 import torch
 from torchvision.ops.focal_loss import sigmoid_focal_loss
+from torchinfo import summary
 
 @dataclass
 class TaskLayer:
@@ -32,7 +33,9 @@ class MultiTaskModel(nn.Module):
 
         self.encoder = AutoModel.from_pretrained(encoder_name_or_path)
 
-        self.output_heads = nn.ModuleDict()
+        self.output_heads      = nn.ModuleDict()
+        #self.output_heads_list = nn.ModuleList()
+
         self.tasks = tasks
         self.labels_name = {}
         for task in tasks:
@@ -40,9 +43,7 @@ class MultiTaskModel(nn.Module):
             # ModuleDict requires keys to be strings
             self.output_heads[str(task.id)] = decoder
             self.labels_name[str(task.id)] = task.labels
-
-    def named_parameters(self, *args, **kwargs):
-        return self.encoder.named_parameters(*args, **kwargs)
+            # self.output_heads_list.append(decoder)
 
     def freeze(self, requires_grad = True):
         for param in self.encoder.base_model.parameters():
@@ -74,6 +75,7 @@ class MultiTaskModel(nn.Module):
         task_ids=None,
         **kwargs,
     ):
+        # print("input_ids:", input_ids)
         # print(task_ids)
         # print(labels_stance, labels_stance.shape)
 
@@ -136,7 +138,7 @@ class MultiTaskModel(nn.Module):
         #print("#logits:", logits)
         # logits are only used for eval. and in case of eval the batch is not multi task
         # For training only the loss is used
-        outputs = (logits, outputs[2:])
+        outputs = (logits,) + outputs[2:]
 
         if loss_list:
             # print("loss list:", loss_list)
@@ -233,7 +235,7 @@ class SequenceClassificationHead(nn.Module):
                     case _:
                         raise Exception(f"Unknown problem type: {self.task.problem_type} for task {self.task}")
 
-        #print(loss)
+        # print(loss)
         return logits, loss
 
 class TokenClassificationHead(nn.Module):

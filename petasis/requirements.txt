@@ -4,3 +4,4 @@ datasets
 pandas
 scikit-learn
 pykeops
+torchinfo

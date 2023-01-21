@@ -60,7 +60,7 @@ def getData(datadir):
     return df_train, df_validation, df_test
 
 def getDatasets(df_train, df_validation, df_test):
-    train_dataset      = Dataset.from_pandas(df_train.truncate(after=200),      split="train")
+    train_dataset      = Dataset.from_pandas(df_train,      split="train")
     validation_dataset = Dataset.from_pandas(df_validation, split="validation")
     test_dataset       = Dataset.from_pandas(df_test,       split="test")
     dataset            = DatasetDict({ "train": train_dataset, "validation": validation_dataset, "test": test_dataset })
@@ -216,10 +216,14 @@ def multi_label_metrics(predictions, true_labels, threshold=0.5, labels=[]):
     #            # 'mcm': mcm.tolist()
     #           }
     metrics = multi_label_metrics_do(y_true=y_true, y_pred=y_pred)
-    if isinstance(true_labels, tuple):
-        for task in range(1, len(true_labels)):
+    if isinstance(predictions, tuple) and len(predictions) > 1:
+        print(true_labels)
+        print(predictions)
+        for task in range(1, len(predictions)):
+            print(task)
             preds  = predictions[task]
             y_true = true_labels[task]
+            print(preds)
             nl = torch.nn.Softmax(dim=1)
             probs = nl(torch.Tensor(preds))
             y_pred = probs.argmax(dim=1)
