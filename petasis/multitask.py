@@ -38,7 +38,7 @@ learning_rate         = 2e-5
 #learning_rate         = 3e-3
 batch_size            = 1024
 metric_name           = "f1"
-num_train_epochs      = 16
+num_train_epochs      = 180
 use_class_weights     = True
 use_pos_weights       = True
 freeze_layers_bert    = False
@@ -47,7 +47,7 @@ hperparam_search      = False
 hperparam_search_name = f"mt-std-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
 
 if not freeze_layers_bert:
-    batch_size = 32
+    batch_size = 64
 
 if use_class_weights:
     loss_class_weights = common.compute_class_weights2(pd.concat([df_train, df_validation], ignore_index=True, sort=False), labels)
