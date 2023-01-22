@@ -5,3 +5,5 @@ pandas
 scikit-learn
 pykeops
 torchinfo
+optuna
+optuna-dashboard

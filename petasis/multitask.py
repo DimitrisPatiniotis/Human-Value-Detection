@@ -1,3 +1,4 @@
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
 from common import common
 from common.multitask import Task, TaskLayer, MultiTaskModel
 from transformers import AutoTokenizer, TrainingArguments, Trainer
@@ -8,7 +9,8 @@ import pandas as pd
 from torchinfo import summary
 import optuna
 
-common.setSeeds(2022)
+seed = 2022
+common.setSeeds(seed)
 
 
 from transformers import AutoModelForSequenceClassification
@@ -32,13 +34,18 @@ loss_pos_weights = None
 ############################################################
 pretrained_model_name = "bert-base-uncased"
 #pretrained_model_name = "facebook/bart-base"
-batch_size            = 96
+learning_rate         = 2e-5
+learning_rate         = 2e-2
+batch_size            = 1024
 metric_name           = "f1"
 num_train_epochs      = 16
 use_class_weights     = False
 use_pos_weights       = True
 freeze_layers_bert    = True
 max_length            = 200
+hperparam_search      = True
+hperparam_search_name = f"mt-std-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
+
 if use_class_weights:
     print("Class weights: sum()=", sum(class_weights))
     for i, lbl in enumerate(labels):
@@ -50,25 +57,24 @@ if use_pos_weights:
         print(lbl, "=", loss_pos_weights[i])
 
 args = TrainingArguments(
-    f"mt-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}",
-    evaluation_strategy = "epoch",
-    save_strategy = "epoch",
-    learning_rate=2e-5,
-    per_device_train_batch_size=batch_size,
-    per_device_eval_batch_size=batch_size,
-    num_train_epochs=num_train_epochs,
-    weight_decay=0.01,
-    load_best_model_at_end=True,
-    metric_for_best_model=metric_name,
+    output_dir                  = f"mt-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}",
+    evaluation_strategy         = "epoch",
+    save_strategy               = "epoch",
+    learning_rate               = learning_rate,
+    per_device_train_batch_size = batch_size,
+    per_device_eval_batch_size  = batch_size,
+    num_train_epochs            = num_train_epochs,
+    weight_decay                = 0.01,
+    load_best_model_at_end      = True,
+    metric_for_best_model       = metric_name,
     #push_to_hub=True,
 )
 task_layers = [
     TaskLayer(out_features=256, dropout_p=0.1),
-    TaskLayer(out_features=256, dropout_p=0.1),
 ]
 
 tasks = [
-    Task(id=0, name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="BCEWithLogitsLoss", loss_reduction="mean", loss_pos_weight=loss_pos_weights, task_layers=task_layers),
+    Task(id=0, name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="BCEWithLogitsLoss", loss_reduction="sum", loss_pos_weight=loss_pos_weights, task_layers=task_layers),
     #Task(id=1, name="stance", num_labels=2, problem_type="single_label_classification", loss="sigmoid_focal_loss", loss_reduction="sum", labels="labels_stance")
 ]
 print("Task ids:", [t.id for t in tasks])
@@ -93,16 +99,17 @@ def instantiate_model(pretrained_model_name, tasks, freezeLayers=False):
 #print(len(outputs['hidden_states']))
 
 def model_init(trial=None):
+    common.setSeeds(seed)
     print("==============> model_init <=====================")
     print("trial:", trial)
-    tasks[0].task_layers = None
     if trial is not None:
         params = trial.params
         print("Trial Params:", params)
-        task_layers = []
-        for l in range(params["n_layers"]):
-            task_layers.append(TaskLayer(out_features=params[f"n_units_l{l}"], dropout_p=0.1))
-        tasks[0].task_layers = task_layers
+        if "n_layers" in params:
+            task_layers = []
+            for l in range(params["n_layers"]):
+                task_layers.append(TaskLayer(out_features=params[f"n_units_l{l}"], dropout_p=0.1))
+            tasks[0].task_layers = task_layers
 
     model = instantiate_model(pretrained_model_name, tasks, freeze_layers_bert)
     # model2 = AutoModelForSequenceClassification.from_pretrained(
@@ -143,21 +150,48 @@ if use_class_weights:
 
 def optuna_hp_space(trial):
     space = {
+        "learning_rate": trial.suggest_float("learning_rate", 1e-6, 1, log=True),
+        "n_layers": 1,
+        "n_units_l0": 256,
+        "n_units_l1": 256,
+        "n_units_l2": 256,
+        "n_units_l3": 256,
+    }
+    return space
+    n_layers_min = 0
+    n_layers_max = 1
+    space = {
         "n_layers": trial.suggest_int('n_layers', 1, 4),
         #"learning_rate": trial.suggest_float("learning_rate", 1e-6, 1e-4, log=True),
         #"per_device_train_batch_size": trial.suggest_categorical("per_device_train_batch_size", [4, 16, 32, 64, 96]),
     }
+    for i in range(n_layers_min, n_layers_max):
+        space[f"n_units_l{i}"] = 0
+
     for i in range(space["n_layers"]):
-        space[f"n_units_l{i}"] = trial.suggest_int(f"n_units_l{i}", 4, 512)
+        space[f"n_units_l{i}"] = trial.suggest_int(f"n_units_l{i}", 4, 128, 4)
     return space
 
+def compute_objective(metrics: Dict[str, float]) -> float:
+    print("===========================================================================")
+    print("==== metrics:", metrics)
+    print(f"==== Objective: eval_{metric_name}:", metrics[f"eval_{metric_name}"])
+    print("===========================================================================")
+    return metrics[f"eval_{metric_name}"]
 
-best_trial = trainer.hyperparameter_search(
-    direction="maximize",
-    backend="optuna",
-    hp_space=optuna_hp_space,
-    n_trials=20,
-)
+if hperparam_search:
+    study_name = hperparam_search_name  # Unique identifier of the study.
+    storage_name = f"sqlite:///{study_name}.db"
+    best_trial = trainer.hyperparameter_search(
+        direction="maximize",
+        backend="optuna",
+        hp_space=optuna_hp_space,
+        compute_objective=compute_objective,
+        n_trials=100,
+        study_name=study_name,
+        storage=storage_name,
+        load_if_exists = True
+    )
 print("best_trial:", best_trial)
 exit(0)
 
