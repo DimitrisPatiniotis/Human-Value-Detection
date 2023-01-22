@@ -125,8 +125,9 @@ def compute_class_weights2(df, labels):
     for label in labels:
         # n_samples / (n_classes * np.bincount(y))
         class_weights.append(total/ (n_classes * counter[label]))
+        #class_weights.append(total/ counter[label])
     # print(class_weights)
-    return np.array(class_weights)
+    return torch.special.softmax(torch.from_numpy(np.array(class_weights)), 0)
 
 def compute_positive_weights(df, labels):
     counter = Counter()

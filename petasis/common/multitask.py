@@ -23,7 +23,8 @@ class Task:
     problem_type: str = "single_label_classification" # regression, single_label_classification, multi_label_classification
     loss: str = None
     loss_reduction: str = "mean" # mean, sum, none...
-    loss_pos_weight: [int] = None
+    loss_pos_weight: [float] = None
+    loss_class_weight: [float] = None
     labels: str = "labels"
     task_layers: [TaskLayer] = None
 
@@ -225,13 +226,29 @@ class SequenceClassificationHead(nn.Module):
                         # print(f"Problem type: multi_label_classification")
                         # print(logits, logits.shape)
                         # print(labels, labels.shape)
+                        reduction = self.task.loss_reduction
+                        if self.task.loss_class_weight is not None:
+                            ## MultiLabelSoftMarginLoss supports class weights...
+                            if not self.task.loss == "MultiLabelSoftMarginLoss":
+                                reduction = "none"
+
                         match self.task.loss:
                             case "sigmoid_focal_loss":
                                 loss_fct = sigmoid_focal_loss
                                 loss = loss_fct(logits, labels, reduction=self.task.loss_reduction)
-                            case _:
-                                loss_fct = nn.BCEWithLogitsLoss(reduction=self.task.loss_reduction, pos_weight=self.task.loss_pos_weight.to(logits.device))
+                            case "MultiLabelSoftMarginLoss":
+                                loss_fct = nn.MultiLabelSoftMarginLoss(weight=self.task.loss_class_weight.to(logits.device), reduction=reduction)
                                 loss = loss_fct(logits, labels)
+                            case _:
+                                loss_fct = nn.BCEWithLogitsLoss(reduction=reduction, pos_weight=self.task.loss_pos_weight.to(logits.device))
+                                loss = loss_fct(logits, labels)
+                        if reduction == "none":
+                            match self.task.loss_reduction:
+                                case "sum":
+                                    loss = (loss * self.task.loss_class_weight.to(logits.device)).sum()
+                                case _:
+                                    loss = (loss * self.task.loss_class_weight.to(logits.device)).mean()
+
                     case _:
                         raise Exception(f"Unknown problem type: {self.task.problem_type} for task {self.task}")
 

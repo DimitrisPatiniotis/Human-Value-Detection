@@ -26,8 +26,8 @@ id2label = {idx:label for idx, label in enumerate(labels)}
 label2id = {label:idx for idx, label in enumerate(labels)}
 #print("Labels:", labels)
 ## Get class weights...
-class_weights = common.compute_class_weights2(pd.concat([df_train, df_validation], ignore_index=True, sort=False), labels)
-loss_pos_weights = None
+loss_pos_weights   = None
+loss_class_weights = None
 
 ############################################################
 ## Parameters
@@ -35,21 +35,26 @@ loss_pos_weights = None
 pretrained_model_name = "bert-base-uncased"
 #pretrained_model_name = "facebook/bart-base"
 learning_rate         = 2e-5
-learning_rate         = 2e-2
+#learning_rate         = 3e-3
 batch_size            = 1024
 metric_name           = "f1"
 num_train_epochs      = 16
-use_class_weights     = False
+use_class_weights     = True
 use_pos_weights       = True
-freeze_layers_bert    = True
+freeze_layers_bert    = False
 max_length            = 200
-hperparam_search      = True
+hperparam_search      = False
 hperparam_search_name = f"mt-std-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
 
+if not freeze_layers_bert:
+    batch_size = 32
+
 if use_class_weights:
-    print("Class weights: sum()=", sum(class_weights))
+    loss_class_weights = common.compute_class_weights2(pd.concat([df_train, df_validation], ignore_index=True, sort=False), labels)
+    print("Class weights: sum()=", sum(loss_class_weights))
     for i, lbl in enumerate(labels):
-        print(lbl, "=", class_weights[i])
+        print(lbl, "=", loss_class_weights[i])
+
 if use_pos_weights:
     loss_pos_weights = common.compute_positive_weights(pd.concat([df_train, df_validation], ignore_index=True, sort=False), labels)
     print("Positive weights: sum()=", sum(loss_pos_weights))
@@ -74,7 +79,7 @@ task_layers = [
 ]
 
 tasks = [
-    Task(id=0, name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="BCEWithLogitsLoss", loss_reduction="sum", loss_pos_weight=loss_pos_weights, task_layers=task_layers),
+    Task(id=0, name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="MultiLabelSoftMarginLoss", loss_reduction="sum", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
     #Task(id=1, name="stance", num_labels=2, problem_type="single_label_classification", loss="sigmoid_focal_loss", loss_reduction="sum", labels="labels_stance")
 ]
 print("Task ids:", [t.id for t in tasks])
@@ -98,8 +103,10 @@ def instantiate_model(pretrained_model_name, tasks, freezeLayers=False):
 #print(outputs)
 #print(len(outputs['hidden_states']))
 
+TRIAL_SCORES = []
 def model_init(trial=None):
     common.setSeeds(seed)
+    TRIAL_SCORES = []
     print("==============> model_init <=====================")
     print("trial:", trial)
     if trial is not None:
@@ -141,23 +148,20 @@ trainer = Trainer(
         model_init=model_init
 )
 
-if use_class_weights:
-    trainer.class_weights(weights=class_weights)
-
 #####################################################################################
 ### Optuna Hyperparameter search
 #####################################################################################
 
 def optuna_hp_space(trial):
-    space = {
-        "learning_rate": trial.suggest_float("learning_rate", 1e-6, 1, log=True),
-        "n_layers": 1,
-        "n_units_l0": 256,
-        "n_units_l1": 256,
-        "n_units_l2": 256,
-        "n_units_l3": 256,
-    }
-    return space
+    # space = {
+    #     "learning_rate": trial.suggest_float("learning_rate", 1e-6, 1, log=True),
+    #     "n_layers": 1,
+    #     "n_units_l0": 256,
+    #     "n_units_l1": 256,
+    #     "n_units_l2": 256,
+    #     "n_units_l3": 256,
+    # }
+    # return space
     n_layers_min = 0
     n_layers_max = 1
     space = {
@@ -165,18 +169,21 @@ def optuna_hp_space(trial):
         #"learning_rate": trial.suggest_float("learning_rate", 1e-6, 1e-4, log=True),
         #"per_device_train_batch_size": trial.suggest_categorical("per_device_train_batch_size", [4, 16, 32, 64, 96]),
     }
-    for i in range(n_layers_min, n_layers_max):
+    for i in range(n_layers_min, n_layers_max+1):
         space[f"n_units_l{i}"] = 0
 
     for i in range(space["n_layers"]):
-        space[f"n_units_l{i}"] = trial.suggest_int(f"n_units_l{i}", 4, 128, 4)
+        space[f"n_units_l{i}"] = trial.suggest_int(f"n_units_l{i}", 128, 1024, 128)
     return space
 
 def compute_objective(metrics: Dict[str, float]) -> float:
-    print("===========================================================================")
-    print("==== metrics:", metrics)
-    print(f"==== Objective: eval_{metric_name}:", metrics[f"eval_{metric_name}"])
-    print("===========================================================================")
+    # print("===========================================================================")
+    # print("==== metrics:", metrics)
+    # print(f"==== Objective: eval_{metric_name}:", metrics[f"eval_{metric_name}"])
+    # print("===========================================================================")
+    TRIAL_SCORES.append(metrics[f"eval_{metric_name}"])
+    if int(metrics["epoch"]) == num_train_epochs:
+        return max(TRIAL_SCORES)
     return metrics[f"eval_{metric_name}"]
 
 if hperparam_search:
@@ -192,8 +199,8 @@ if hperparam_search:
         storage=storage_name,
         load_if_exists = True
     )
-print("best_trial:", best_trial)
-exit(0)
+    print("best_trial:", best_trial)
+    exit(0)
 
 #common.show_memory("Memory before Training")
 print("############### Training:")
