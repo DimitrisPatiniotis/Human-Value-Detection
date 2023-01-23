@@ -23,6 +23,7 @@ class Task:
     problem_type: str = "single_label_classification" # regression, single_label_classification, multi_label_classification
     loss: str = None
     loss_reduction: str = "mean" # mean, sum, none...
+    loss_reduction_weight: float = None
     loss_pos_weight: [float] = None
     loss_class_weight: [float] = None
     labels: str = "labels"
@@ -167,8 +168,10 @@ class SequenceClassificationHead(nn.Module):
                     self._init_weights(layer)
                     self.layers.append(layer)
                 match tl.activation:
+                    case "SELU":
+                        self.layers.append(nn.SELU())
                     case _:
-                        self.layers.append(torch.nn.ReLU())
+                        self.layers.append(nn.ReLU())
                 input_size = tl.out_features
         self.dropout = nn.Dropout(dropout_p)
         self.classifier = nn.Linear(input_size, num_labels)
@@ -178,7 +181,8 @@ class SequenceClassificationHead(nn.Module):
     def _init_weights(self, layer=None):
         if layer is None:
             layer = self.classifier
-        layer.weight.data.normal_(mean=0.0, std=0.02)
+        #layer.weight.data.normal_(mean=0.0, std=0.02)
+        nn.init.xavier_normal_(layer.weight.data)
         if layer.bias is not None:
             layer.bias.data.zero_()
 
@@ -216,11 +220,14 @@ class SequenceClassificationHead(nn.Module):
                             loss = loss_fct(logits, labels)
                     case "single_label_classification":
                         # print(f"Problem type: single_label_classification")
-                        if self.task.loss_pos_weight is None:
+                        if self.task.loss_class_weight is None:
                             loss_fct = nn.CrossEntropyLoss(reduction=self.task.loss_reduction)
                         else:
-                            loss_fct = nn.CrossEntropyLoss(reduction=self.task.loss_reduction, weight=self.task.loss_pos_weight.to(logits.device))
+                            loss_fct = nn.CrossEntropyLoss(reduction=self.task.loss_reduction, weight=self.task.loss_class_weight.to(logits.device))
                         # Labels are expected as class indices...
+                        print("logits:", logits.shape, logits.view(-1, self.num_labels).shape)
+                        print("labels:", labels.shape, labels.view(-1).shape)
+                        print("weights:", self.task.loss_class_weight.shape)
                         loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
                     case "multi_label_classification":
                         # print(f"Problem type: multi_label_classification")
@@ -229,16 +236,33 @@ class SequenceClassificationHead(nn.Module):
                         reduction = self.task.loss_reduction
                         if self.task.loss_class_weight is not None:
                             ## MultiLabelSoftMarginLoss supports class weights...
-                            if not self.task.loss == "MultiLabelSoftMarginLoss":
+                            if not self.task.loss in ["MultiLabelSoftMarginLoss", "SigmoidMultiLabelSoftMarginLoss", "CrossEntropyLoss"]:
                                 reduction = "none"
 
                         match self.task.loss:
                             case "sigmoid_focal_loss":
                                 loss_fct = sigmoid_focal_loss
                                 loss = loss_fct(logits, labels, reduction=self.task.loss_reduction)
+                            case "SigmoidMultiLabelSoftMarginLoss":
+                                sigmoid = nn.Sigmoid()
+                                logits = sigmoid(logits)
+                                loss_fct = nn.MultiLabelSoftMarginLoss(weight=self.task.loss_class_weight.to(logits.device), reduction=reduction)
+                                loss = loss_fct(logits, labels)
                             case "MultiLabelSoftMarginLoss":
                                 loss_fct = nn.MultiLabelSoftMarginLoss(weight=self.task.loss_class_weight.to(logits.device), reduction=reduction)
                                 loss = loss_fct(logits, labels)
+                            case "CrossEntropyLoss":
+                                ## https://discuss.pytorch.org/t/multilabel-classification-with-class-imbalance/57345
+                                # Apply softmax...
+                                # https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
+                                # I think softmax is implicitely applied.
+                                #softmax = torch.nn.Softmax(dim=1)
+                                #logits = softmax(logits)
+                                if self.task.loss_class_weight is None:
+                                    loss_fct = nn.CrossEntropyLoss(reduction=self.task.loss_reduction)
+                                else:
+                                    loss_fct = nn.CrossEntropyLoss(reduction=self.task.loss_reduction, weight=self.task.loss_class_weight.to(logits.device))
+                                loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1, self.num_labels))
                             case _:
                                 loss_fct = nn.BCEWithLogitsLoss(reduction=reduction, pos_weight=self.task.loss_pos_weight.to(logits.device))
                                 loss = loss_fct(logits, labels)
@@ -252,6 +276,9 @@ class SequenceClassificationHead(nn.Module):
                     case _:
                         raise Exception(f"Unknown problem type: {self.task.problem_type} for task {self.task}")
 
+        if loss is not None and self.task.loss_reduction_weight is not None:
+            # print(loss, self.task.loss_reduction_weight)
+            loss *= self.task.loss_reduction_weight
         # print(loss)
         return logits, loss
 

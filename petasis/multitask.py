@@ -38,7 +38,7 @@ learning_rate         = 2e-5
 #learning_rate         = 3e-3
 batch_size            = 1024
 metric_name           = "f1"
-num_train_epochs      = 180
+num_train_epochs      = 16
 use_class_weights     = True
 use_pos_weights       = True
 freeze_layers_bert    = False
@@ -64,23 +64,33 @@ if use_pos_weights:
 args = TrainingArguments(
     output_dir                  = f"mt-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}",
     evaluation_strategy         = "epoch",
-    save_strategy               = "epoch",
+    #save_strategy               = "epoch",
+    save_strategy               = "no",
+    eval_steps                  = 10,
     learning_rate               = learning_rate,
     per_device_train_batch_size = batch_size,
     per_device_eval_batch_size  = batch_size,
     num_train_epochs            = num_train_epochs,
     weight_decay                = 0.01,
-    load_best_model_at_end      = True,
+    load_best_model_at_end      = False,
     metric_for_best_model       = metric_name,
+    seed                        = seed,
     #push_to_hub=True,
 )
+
 task_layers = [
-    TaskLayer(out_features=256, dropout_p=0.1),
+    TaskLayer(out_features=384, dropout_p=0.1, activation="ReLU"),
 ]
 
+tid = 0
 tasks = [
-    Task(id=0, name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="MultiLabelSoftMarginLoss", loss_reduction="sum", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
-    #Task(id=1, name="stance", num_labels=2, problem_type="single_label_classification", loss="sigmoid_focal_loss", loss_reduction="sum", labels="labels_stance")
+    #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="MultiLabelSoftMarginLoss", loss_reduction="sum", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
+    #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="SigmoidMultiLabelSoftMarginLoss", loss_reduction="sum", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
+
+    #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="BCEWithLogitsLoss",        loss_reduction="mean", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
+    #Task(id=(tid:=tid+1), name="stance", num_labels=2, problem_type="single_label_classification", loss="sigmoid_focal_loss", loss_reduction="sum", labels="labels_stance")
+    Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="CrossEntropyLoss",  loss_reduction="sum", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
+
 ]
 print("Task ids:", [t.id for t in tasks])
 
@@ -117,22 +127,14 @@ def model_init(trial=None):
             for l in range(params["n_layers"]):
                 task_layers.append(TaskLayer(out_features=params[f"n_units_l{l}"], dropout_p=0.1))
             tasks[0].task_layers = task_layers
+        if "theta" in params:
+            tasks[0].loss_reduction_weight = (1. + params["theta"])**2
+            tasks[1].loss_reduction_weight = (1. - params["theta"])**2
+
 
     model = instantiate_model(pretrained_model_name, tasks, freeze_layers_bert)
-    # model2 = AutoModelForSequenceClassification.from_pretrained(
-    #             pretrained_model_name,
-    #             problem_type="multi_label_classification",
-    #             output_hidden_states=False,
-    #             num_labels=len(labels),
-    #             id2label=id2label,
-    #             label2id=label2id)
-    # for param in model2.base_model.parameters():
-    #         param.requires_grad = not freeze_layers_bert
-
-    # print(model2)
     #print(model)
-    summary(model, input_size=(2, max_length), depth=4, dtypes=['torch.IntTensor'], device="cpu" )
-    # print(summary(model2, input_size=(2, max_length), depth=4, dtypes=['torch.IntTensor'], device="cpu" ))
+    #summary(model, input_size=(2, max_length), depth=4, dtypes=['torch.IntTensor'], device="cpu")
 
     #print(dict(model.named_parameters()))
     #print(model.state_dict())
@@ -144,7 +146,7 @@ trainer = Trainer(
         train_dataset = encoded_dataset["train"],
         eval_dataset  = encoded_dataset["validation"],
         tokenizer=tokenizer,
-        compute_metrics=partial(common.compute_metrics, labels=labels),
+        compute_metrics=partial(common.compute_metrics, labels=labels, tasks=tasks),
         model_init=model_init
 )
 
@@ -162,18 +164,19 @@ def optuna_hp_space(trial):
     #     "n_units_l3": 256,
     # }
     # return space
-    n_layers_min = 0
+    n_layers_min = 1
     n_layers_max = 1
     space = {
-        "n_layers": trial.suggest_int('n_layers', 1, 4),
+        #"n_layers": trial.suggest_int('n_layers', n_layers_min, n_layers_max),
+        "theta": trial.suggest_float("theta", 0, 1)
         #"learning_rate": trial.suggest_float("learning_rate", 1e-6, 1e-4, log=True),
         #"per_device_train_batch_size": trial.suggest_categorical("per_device_train_batch_size", [4, 16, 32, 64, 96]),
     }
     for i in range(n_layers_min, n_layers_max+1):
         space[f"n_units_l{i}"] = 0
 
-    for i in range(space["n_layers"]):
-        space[f"n_units_l{i}"] = trial.suggest_int(f"n_units_l{i}", 128, 1024, 128)
+    #for i in range(space["n_layers"]):
+    #    space[f"n_units_l{i}"] = trial.suggest_int(f"n_units_l{i}", 128, 1024, 128)
     return space
 
 def compute_objective(metrics: Dict[str, float]) -> float:

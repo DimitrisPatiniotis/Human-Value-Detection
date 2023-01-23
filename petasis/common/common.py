@@ -178,45 +178,68 @@ def multi_label_metrics_do(y_true, y_pred, prefix=""):
     }
 
 # source: https://jesusleal.io/2021/04/21/Longformer-multilabel-classification/
-def multi_label_metrics(predictions, true_labels, threshold=0.5, labels=[]):
+def multi_label_metrics(predictions, true_labels, labels=[], tasks=None):
     ## We assume that the main task is the first task, in case of multitasking...
     preds  = predictions[0] if isinstance(predictions, tuple) else predictions
     y_true = true_labels[0] if isinstance(true_labels, tuple) else true_labels
+    print("predictions:", preds[0], sum(preds[0]))
+    print("y_true:", y_true[0], y_true.shape)
 
-    # first, apply sigmoid on predictions which are of shape (batch_size, num_labels)
-    sigmoid = torch.nn.Sigmoid()
-    probs = sigmoid(torch.Tensor(preds))
-    # next, use threshold to turn them into integer predictions
-    y_pred = np.zeros(probs.shape)
-    y_pred[np.where(probs >= threshold)] = 1
+    for task in tasks:
+        match task.loss:
+            case "CrossEntropyLoss":
+                activation = "softmax"
+            case _:
+                activation = "sigmoid"
+        match activation:
+            case "sigmoid":
+                # first, apply sigmoid on predictions which are of shape (batch_size, num_labels)
+                sigmoid = torch.nn.Sigmoid()
+                probs = sigmoid(torch.Tensor(preds))
+                threshold = 0.5
+            case "softmax":
+                # Apply softmax only if it has not already been applied.
+                s = sum(preds[0])
+                if s > 1.001 or s < 0.999:
+                    print("===========> Applying softmax:", s)
+                    softmax = torch.nn.Softmax(dim=1)
+                    probs = softmax(torch.Tensor(preds))
+                else:
+                    probs = torch.Tensor(preds)
+                threshold = 1./ len(labels)
 
-    # Save results...
-    save_eval_results(y_pred, labels=labels)
+        # next, use threshold to turn them into integer predictions
+        y_pred = np.zeros(probs.shape)
+        y_pred[np.where(probs >= threshold)] = 1
 
-    # finally, compute metrics
-    #precision, recall, f1_m, _ = precision_recall_fscore_support(y_true=y_true, y_pred=y_pred, average='macro')
-    #precision_micro_average = precision_score(y_true=y_true, y_pred=y_pred, average='micro')
-    #recall_micro_average    = recall_score   (y_true=y_true, y_pred=y_pred, average='micro')
-    #f1_micro_average        = f1_score       (y_true=y_true, y_pred=y_pred, average='micro')
-    #precision_macro_average = precision_score(y_true=y_true, y_pred=y_pred, average='macro')
-    #recall_macro_average    = recall_score   (y_true=y_true, y_pred=y_pred, average='macro')
-    #f1_macro_average        = f1_score       (y_true=y_true, y_pred=y_pred, average='macro')
-    #roc_auc                 = roc_auc_score(y_true, y_pred, average = 'micro')
-    #accuracy                = accuracy_score(y_true, y_pred)
-    # mcm = multilabel_confusion_matrix(y_true=y_true, y_pred=y_pred, labels=np.arange(len(labels)))
-    # f1 = 2 * precision * recall / (precision + recall)
-    # if math.isnan(f1):
-    #     f1 = 0.0
-    # # return as dictionary
-    # metrics = {'p': precision,
-    #            'r': recall,
-    #            'f1':  f1,
-    #            'f1_m': f1_m
-    #            # 'roc_auc': roc_auc,
-    #            # 'accuracy': accuracy,
-    #            # 'mcm': mcm.tolist()
-    #           }
-    metrics = multi_label_metrics_do(y_true=y_true, y_pred=y_pred)
+        # Save results...
+        save_eval_results(y_pred, labels=labels)
+
+        # finally, compute metrics
+        #precision, recall, f1_m, _ = precision_recall_fscore_support(y_true=y_true, y_pred=y_pred, average='macro')
+        #precision_micro_average = precision_score(y_true=y_true, y_pred=y_pred, average='micro')
+        #recall_micro_average    = recall_score   (y_true=y_true, y_pred=y_pred, average='micro')
+        #f1_micro_average        = f1_score       (y_true=y_true, y_pred=y_pred, average='micro')
+        #precision_macro_average = precision_score(y_true=y_true, y_pred=y_pred, average='macro')
+        #recall_macro_average    = recall_score   (y_true=y_true, y_pred=y_pred, average='macro')
+        #f1_macro_average        = f1_score       (y_true=y_true, y_pred=y_pred, average='macro')
+        #roc_auc                 = roc_auc_score(y_true, y_pred, average = 'micro')
+        #accuracy                = accuracy_score(y_true, y_pred)
+        # mcm = multilabel_confusion_matrix(y_true=y_true, y_pred=y_pred, labels=np.arange(len(labels)))
+        # f1 = 2 * precision * recall / (precision + recall)
+        # if math.isnan(f1):
+        #     f1 = 0.0
+        # # return as dictionary
+        # metrics = {'p': precision,
+        #            'r': recall,
+        #            'f1':  f1,
+        #            'f1_m': f1_m
+        #            # 'roc_auc': roc_auc,
+        #            # 'accuracy': accuracy,
+        #            # 'mcm': mcm.tolist()
+        #           }
+        metrics = multi_label_metrics_do(y_true=y_true, y_pred=y_pred)
+        break
     if isinstance(predictions, tuple) and len(predictions) > 1:
         print(true_labels)
         print(predictions)
@@ -231,7 +254,7 @@ def multi_label_metrics(predictions, true_labels, threshold=0.5, labels=[]):
             metrics = metrics | multi_label_metrics_do(y_true=y_true, y_pred=y_pred, prefix=str(task))
     return metrics
 
-def compute_metrics(p: EvalPrediction, labels=[]):
+def compute_metrics(p: EvalPrediction, labels=[], tasks=None):
     preds = p.predictions[0] if isinstance(p.predictions,
             tuple) else p.predictions
     # lbls  = p.label_ids[0] if isinstance(p.label_ids,
@@ -241,5 +264,6 @@ def compute_metrics(p: EvalPrediction, labels=[]):
     result = multi_label_metrics(
         predictions=preds,
         true_labels=p.label_ids,
-        labels=labels)
+        labels=labels,
+        tasks=tasks)
     return result
