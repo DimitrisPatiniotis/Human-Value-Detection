@@ -166,7 +166,7 @@ metrics = {
     'f1_m': []
 }
 def multi_label_metrics_do(y_true, y_pred, prefix=""):
-    precision, recall, f1_m, _ = precision_recall_fscore_support(y_true=y_true, y_pred=y_pred, average='macro')
+    precision, recall, f1_m, _ = precision_recall_fscore_support(y_true=y_true, y_pred=y_pred, average='macro', zero_division=0)
     f1 = 2 * precision * recall / (precision + recall)
     if math.isnan(f1):
         f1 = 0.0
@@ -174,7 +174,7 @@ def multi_label_metrics_do(y_true, y_pred, prefix=""):
         f'{prefix}p': precision,
         f'{prefix}r': recall,
         f'{prefix}f1':  f1,
-        f'{prefix}f1_m': f1_m
+        #f'{prefix}f1_m': f1_m
     }
 
 # source: https://jesusleal.io/2021/04/21/Longformer-multilabel-classification/
@@ -184,6 +184,7 @@ def multi_label_metrics(predictions, true_labels, labels=[], tasks=None):
     y_true, y_true_stance = true_labels
 
     y_pred = torch.from_numpy(np.zeros(predictions[0].shape + (len(predictions),)))
+    task_metrics = {}
     for i,task in enumerate(tasks):
         preds = predictions[i]
         match task.loss:
@@ -213,9 +214,13 @@ def multi_label_metrics(predictions, true_labels, labels=[], tasks=None):
         # next, use threshold to turn them into integer predictions
         indices = np.where(probs >= threshold)
         indices += (np.full( len(indices[0]), i),)
-        #task_y_pred = np.zeros(probs.shape)
-        #task_y_pred[np.where(probs >= threshold)] = 1
         y_pred[indices] = 1
+        task_y_pred = np.zeros(probs.shape)
+        task_y_pred[np.where(probs >= threshold)] = 1
+        # task metrics...
+        tm = multi_label_metrics_do(y_true=y_true, y_pred=task_y_pred, prefix=f"t{i+1}_")
+        task_metrics = task_metrics | tm
+        print(f"Task {i+1}:", tm)
     ## Implement voting (take mode)...
     y_pred = y_pred.mode(dim=-1)[0].numpy()
 
@@ -223,7 +228,7 @@ def multi_label_metrics(predictions, true_labels, labels=[], tasks=None):
     save_eval_results(y_pred, labels=labels)
 
     # finally, compute metrics
-    metrics = multi_label_metrics_do(y_true=y_true, y_pred=y_pred)
+    metrics = multi_label_metrics_do(y_true=y_true, y_pred=y_pred) | task_metrics
     return metrics
 
 def compute_metrics(p: EvalPrediction, labels=[], tasks=None):
