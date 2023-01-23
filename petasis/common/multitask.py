@@ -225,9 +225,6 @@ class SequenceClassificationHead(nn.Module):
                         else:
                             loss_fct = nn.CrossEntropyLoss(reduction=self.task.loss_reduction, weight=self.task.loss_class_weight.to(logits.device))
                         # Labels are expected as class indices...
-                        print("logits:", logits.shape, logits.view(-1, self.num_labels).shape)
-                        print("labels:", labels.shape, labels.view(-1).shape)
-                        print("weights:", self.task.loss_class_weight.shape)
                         loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
                     case "multi_label_classification":
                         # print(f"Problem type: multi_label_classification")
