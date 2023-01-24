@@ -3,6 +3,7 @@ sys.path.append('../Utils/')
 
 from bert import *
 from many_single_class_BERT_models import *
+from doubleBERT import DoubleBert
 from gan_bert import *
 from loader import *
 from settings import *
@@ -27,7 +28,6 @@ def main():
                           workingTableType='value_categories',
                           unlabeled_data_file_name='arguments-test.tsv',
                           with_unlabeled_data=W_UNLABELED_DATA)
-
         val_dl = Loader(data_base_path='../new_Data/',
                         ta_file_name='arguments-validation.tsv',
                         tl_file_name='labels-validation.tsv',
@@ -60,6 +60,16 @@ def main():
             target_cols = train_dl.get_target_cols()
 
         # Check the consistency of settings
+        if DOUBLE_BERT and not W_NEW_DATA:
+            print('DOUBLE_BERT and EVALUATION_W_MANY_SINGLE_CLASS_BERT_MODELS should be both true !!')
+        if DOUBLE_BERT and EVALUATION_W_MANY_SINGLE_CLASS_BERT_MODELS:
+            print('DOUBLE_BERT and EVALUATION_W_MANY_SINGLE_CLASS_BERT_MODELS cannot be both true !!')
+        if DOUBLE_BERT and EVALUATE_ONLY:
+            print('DOUBLE_BERT and EVALUATE_ONLY cannot be both true !!')
+        if DOUBLE_BERT and TEST_ONLY:
+            print('DOUBLE_BERT and TEST_ONLY cannot be both true !!')
+        if GAN_BERT and DOUBLE_BERT:
+            print('GAN_BERT and DOUBLE_BERT cannot be both true !!')
         if TEST_ONLY and GAN_BERT:
             print('Not implemented !')
             exit(0)
@@ -105,6 +115,12 @@ def main():
                                               loader_train_dataset=(None if not W_NEW_DATA else train_dl),
                                               loader_valid_dataset=(None if not W_NEW_DATA else val_dl),
                                               loader_test_dataset=(None if not W_NEW_DATA else test_dl))
+
+        elif DOUBLE_BERT:
+            model = DoubleBert(target_cols=target_cols, max_length=max_length,
+                               loader_train_dataset=(None if not W_NEW_DATA else train_dl),
+                               loader_valid_dataset=(None if not W_NEW_DATA else val_dl),
+                               device='cuda' if torch.cuda.is_available() else 'cpu')
 
         else:
             model = BERTClass(target_cols=target_cols, max_length=max_length,

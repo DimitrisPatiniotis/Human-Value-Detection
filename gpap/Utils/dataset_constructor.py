@@ -82,6 +82,7 @@ class BERTDataset(Dataset):
                                             padding='max_length',
                                             return_token_type_ids=False)
         ids = inputs['input_ids']
+        print(self.targets[index])
 
         return {
             'ids': torch.tensor(ids, dtype=torch.long),
