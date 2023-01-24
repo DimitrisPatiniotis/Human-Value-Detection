@@ -56,15 +56,20 @@ def analytical_stem(txt):
 
 class Loader():
 
-    def __init__(self, data_base_path='../Data/',
+    def __init__(self,
+                 data_base_path='../Data/',
                  ta_file_name='arguments-training.tsv',
                  tl_file_name='labels-training.tsv',
                  tl_lvl1_file_name='level1-labels-training.tsv',
-                 workingTableType='value_categories'):
+                 workingTableType='value_categories',
+                 unlabeled_data_file_name='arguments-test.tsv',
+                 with_unlabeled_data=False):
 
         self.TA_FILE_NAME = ta_file_name
         self.TL_FILE_NAME = tl_file_name
         self.TL_LVL1_FILE_NAME = tl_lvl1_file_name
+        self.UNLABELED_DATA_FILE_NAME = unlabeled_data_file_name
+        self.WITH_UNLABELED_DATA = with_unlabeled_data
         self.DATA_PATH = data_base_path
         self.workingTableType = workingTableType
         self.stemmer = PorterStemmer()
@@ -76,6 +81,7 @@ class Loader():
         self.train = None
         self.validation = None
         self.target_cols = None
+        self.workingTable_Unlabeled = None
 
         self.x_train = None
         self.y_train = None
@@ -86,19 +92,24 @@ class Loader():
 
     def load(self, clean=True, w_sep=False, w_concl=True, w_stance=True):
         self.arguments = load_data(self.DATA_PATH + self.TA_FILE_NAME)
-        if self.workingTableType == 'value_categories':
+        if self.workingTableType == 'value_categories' and self.TL_FILE_NAME is not None:
             self.labels = load_data(self.DATA_PATH + self.TL_FILE_NAME)
             # Merging
             self.workingTable = pd.merge(self.arguments, self.labels, on='Argument ID')
+            self.label_names = get_main_label_names('../Data/value-categories.json')
+        elif self.workingTableType == 'value_categories' and self.TL_FILE_NAME is None:
+            self.workingTable = self.arguments
             self.label_names = get_main_label_names('../Data/value-categories.json')
         elif self.workingTableType == '':
             self.labels = load_data(self.DATA_PATH + self.TL_LVL1_FILE_NAME)
             self.workingTable = pd.merge(self.arguments, self.labels, on='Argument ID')
 
         # Add padding or [SEP]
-        self.workingTable['Conclusion'] = self.workingTable['Conclusion'].apply(lambda txt: (txt + (' [SEP] ' if w_sep else ' ')) if not w_stance else txt)
-        self.workingTable['Stance'] = self.workingTable['Stance'].apply(lambda txt: ((' [SEP] ' if w_sep else ' ') + txt + (' [SEP] ' if w_sep else ' '))
-                                                                                    if w_concl else (txt + (' [SEP] ' if w_sep else ' ')))
+        self.workingTable['Conclusion'] = self.workingTable['Conclusion'].\
+            apply(lambda txt: (txt + (' [SEP] ' if w_sep else ' ')) if not w_stance else txt)
+        self.workingTable['Stance'] = self.workingTable['Stance'].\
+            apply(lambda txt: ((' [SEP] ' if w_sep else ' ') + txt + ' ')
+                              if w_concl else (txt + ' '))
 
         self.workingTable['Text'] = (self.workingTable['Conclusion'] if w_concl else '') + \
                                     (self.workingTable['Stance'] if w_stance else '') + \
@@ -107,6 +118,25 @@ class Loader():
 
         if clean:
             self.workingTable['Text'] = self.workingTable['Text'].apply(clean_text)
+
+        if self.WITH_UNLABELED_DATA:
+
+            self.workingTable_Unlabeled = load_data(self.DATA_PATH + self.UNLABELED_DATA_FILE_NAME)
+
+            # Add padding or [SEP]
+            self.workingTable_Unlabeled['Conclusion'] = self.workingTable_Unlabeled['Conclusion']. \
+                apply(lambda txt: (txt + (' [SEP] ' if w_sep else ' ')) if not w_stance else txt)
+            self.workingTable_Unlabeled['Stance'] = self.workingTable_Unlabeled['Stance']. \
+                apply(lambda txt: ((' [SEP] ' if w_sep else ' ') + txt + ' ')
+                                  if w_concl else (txt + ' '))
+
+            self.workingTable_Unlabeled['Text'] = (self.workingTable_Unlabeled['Conclusion'] if w_concl else '') + \
+                                                  (self.workingTable_Unlabeled['Stance'] if w_stance else '') + \
+                                                  self.workingTable_Unlabeled['Premise']
+            self.workingTable_Unlabeled = self.workingTable_Unlabeled.drop(['Conclusion', 'Stance', 'Premise'], axis=1)
+
+            if clean:
+                self.workingTable_Unlabeled['Text'] = self.workingTable_Unlabeled['Text'].apply(clean_text)
 
     def get_max_len(self):
         # Find the sentence with the maximum words
