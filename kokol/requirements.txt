@@ -1,0 +1,9 @@
+torch
+transformers
+datasets
+pandas
+scikit-learn
+pykeops
+torchinfo
+optuna
+optuna-dashboard
