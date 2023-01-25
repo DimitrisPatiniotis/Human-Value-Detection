@@ -38,10 +38,14 @@ class BERTClass(torch.nn.Module):
         self.valid_dataset = None
         self.test_dataset = None
 
-        configuration = AutoConfig.from_pretrained('bert-base-uncased')
+        configuration = AutoConfig.from_pretrained('bert-base-uncased' if BERT_MODEL == 'Base' else 'bert-large-uncased')
         configuration.hidden_dropout_prob = HIDDEN_DROPOUT_PROB
         configuration.attention_probs_dropout_prob = ATTENTION_PROBS_DROPOUT_PROBS
-        self.bert = BertModel.from_pretrained(pretrained_model_name_or_path='bert-base-uncased', config=configuration)
+        self.bert = \
+            BertModel.from_pretrained(pretrained_model_name_or_path='bert-base-uncased' if BERT_MODEL == 'Base'
+                                                                                        else
+                                                                    'bert-large-uncased',
+                                      config=configuration)
 
         if max_length > 512:
             self.bert.config.max_position_embeddings = max_length
@@ -280,14 +284,14 @@ class BERTClass(torch.nn.Module):
 
         return v_conc_pred_one_hot, v_conc_ground_truth, v_loss_list
 
-    def best_model_evaluation(self, vloader, evaluation_only=False, write_file=False):
+    def best_model_evaluation(self, vloader, evaluation_only=False, write_file=False, path=MODEL_PATH):
 
         if not evaluation_only:
             print('Training has ended. Loading best model for evaluation..')
         else:
             print('Loading saved model for evaluation..')
 
-        self.load_state_dict(torch.load(MODEL_PATH if not evaluation_only else MODEL_PATH_FOR_EVALUATION_ONLY,
+        self.load_state_dict(torch.load(path if not evaluation_only else MODEL_PATH_FOR_EVALUATION_ONLY,
                                         map_location=torch.device(self.device)))
 
         v_conc_pred_one_hot, v_conc_ground_truth, final_v_loss_list = self.evaluation(vloader)
@@ -324,7 +328,7 @@ class BERTClass(torch.nn.Module):
         if not os.path.exists('/'.join(MODEL_PATH.split('/')[:-1])):
             os.mkdir('/'.join(MODEL_PATH.split('/')[:-1]))
 
-        tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+        tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased' if BERT_MODEL == 'Base' else 'bert-large-uncased')
         if self.max_length > 512:
             tokenizer.model_max_length = self.max_length
             print('Max len exceeds 512 tokens !!! Tokenizer is changed !!!')
@@ -370,7 +374,7 @@ class BERTClass(torch.nn.Module):
 
     def evaluate_(self):
 
-        tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+        tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased' if BERT_MODEL == 'Base' else 'bert-large-uncased')
         if self.max_length > 512:
             tokenizer.model_max_length = self.max_length
             print('Max len exceeds 512 tokens !!! Tokenizer is changed !!!')
@@ -391,7 +395,7 @@ class BERTClass(torch.nn.Module):
 
     def test_(self):
 
-        tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+        tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased' if BERT_MODEL == 'Base' else 'bert-large-uncased')
         if self.max_length > 512:
             tokenizer.model_max_length = self.max_length
             print('Max len exceeds 512 tokens !!! Tokenizer is changed !!!')

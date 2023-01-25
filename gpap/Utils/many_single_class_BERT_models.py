@@ -191,7 +191,7 @@ class ManySingleClassBertModels(torch.nn.Module):
 
         t_pred_one_hot = []
         for _, t_data in tqdm(enumerate(test_loader, 0)):
-            t_ids = t_data['ids'].to(self.device, dtype=torch.long)
+            t_ids = t_data['ids'].to(device, dtype=torch.long)
 
             with torch.no_grad():
                 t_outputs = self(t_ids)
