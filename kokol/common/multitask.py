@@ -11,6 +11,8 @@ from torchinfo import summary
 @dataclass
 class TaskLayer:
     out_features: int = 0
+    in_features: int = 0
+    linear_features: int = 0
     activation: str = "ReLU"
     dropout_p: float = None
 
@@ -164,12 +166,19 @@ class SequenceClassificationHead(nn.Module):
                 if tl.dropout_p is not None:
                     self.layers.append(nn.Dropout(tl.dropout_p))
                 if tl.out_features > 0:
-                    layer = nn.Linear(input_size, tl.out_features)
+                    if tl.linear_features > 0:
+                        layer = nn.Linear(input_size, tl.linear_features)
+                    else:
+                        layer = nn.Linear(input_size, tl.out_features)
                     self._init_weights(layer)
                     self.layers.append(layer)
                 match tl.activation:
                     case "SELU":
                         self.layers.append(nn.SELU())
+                    case "Conv":
+                        self.layers.append(nn.Conv1d(tl.in_features, tl.out_features, 3))
+                    case "AvgPool":
+                        self.layers.append(nn.AvgPool1d(3))
                     case _:
                         self.layers.append(nn.ReLU())
                 input_size = tl.out_features
@@ -189,7 +198,10 @@ class SequenceClassificationHead(nn.Module):
     def forward(self, sequence_output, pooled_output, labels=None, **kwargs):
         output = pooled_output
         for layer in self.layers:
-            output = layer(output)
+            if layer is nn.Conv1d:
+                output = layer(output.transpose(1, 2).transpose(0, 1))
+            else:
+                output = layer(output)
         output = self.dropout(output)
         logits = self.classifier(output)
         # print("=>", self.task.id, self.task.name)
