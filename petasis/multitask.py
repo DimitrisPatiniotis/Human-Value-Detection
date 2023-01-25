@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
 from common import common
 from common.multitask import Task, TaskLayer, MultiTaskModel
+from common import tensorboard as tfboard
 from transformers import AutoTokenizer, TrainingArguments, Trainer
 from functools import partial
 import subprocess
@@ -8,6 +9,8 @@ import numpy as np
 import pandas as pd
 from torchinfo import summary
 import optuna
+from torch.utils.tensorboard import SummaryWriter
+from transformers.integrations import TensorBoardCallback
 
 seed = 2022
 common.setSeeds(seed)
@@ -25,6 +28,7 @@ labels = [label for label in dataset['train'].features.keys() if label not in co
 id2label = {idx:label for idx, label in enumerate(labels)}
 label2id = {label:idx for idx, label in enumerate(labels)}
 #print("Labels:", labels)
+tfboard.display_labels=labels
 ## Get class weights...
 loss_pos_weights   = None
 loss_class_weights = None
@@ -33,6 +37,7 @@ loss_class_weights = None
 ## Parameters
 ############################################################
 pretrained_model_name = "bert-base-uncased"
+#pretrained_model_name = "bert-large-uncased"
 #pretrained_model_name = "facebook/bart-base"
 learning_rate         = 2e-5
 #learning_rate         = 3e-3
@@ -44,10 +49,18 @@ use_pos_weights       = True
 freeze_layers_bert    = False
 max_length            = 200
 hperparam_search      = False
-hperparam_search_name = f"mt-std-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
+output_dir            = f"runs/mt-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
+best_output_dir       = f"runs/mt-best-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
+tensorboard_dir       = f"runs/mt-tb-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
+hperparam_search_name = f"runs/mt-std-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
+
+writer = SummaryWriter(tensorboard_dir)
 
 if not freeze_layers_bert:
-    batch_size = 64
+    if "large" in pretrained_model_name:
+        batch_size = 32
+    else:
+        batch_size = 64
 
 if use_class_weights:
     loss_class_weights = common.compute_class_weights2(pd.concat([df_train, df_validation], ignore_index=True, sort=False), labels)
@@ -62,7 +75,7 @@ if use_pos_weights:
         print(lbl, "=", loss_pos_weights[i])
 
 args = TrainingArguments(
-    output_dir                  = f"mt-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}",
+    output_dir                  = output_dir,
     evaluation_strategy         = "epoch",
     #save_strategy               = "epoch",
     save_strategy               = "no",
@@ -86,10 +99,11 @@ tid = 0
 tasks = [
     Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="CrossEntropyLoss",         loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
     Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="MultiLabelSoftMarginLoss", loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
-    #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="BCEWithLogitsLoss",        loss_reduction="mean", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
+    Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="BCEWithLogitsLoss",        loss_reduction="sum", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
     #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="SigmoidMultiLabelSoftMarginLoss", loss_reduction="sum", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
 
     #Task(id=(tid:=tid+1), name="stance", num_labels=2, problem_type="single_label_classification", loss="sigmoid_focal_loss", loss_reduction="sum", labels="labels_stance")
+    #Task(id=(tid:=tid+1), name="stance", num_labels=len(labels), problem_type="multi_label_classification", loss="sigmoid_focal_loss", loss_reduction="mean")
 
 ]
 print("Task ids:", [t.id for t in tasks])
@@ -146,9 +160,11 @@ trainer = Trainer(
         train_dataset = encoded_dataset["train"],
         eval_dataset  = encoded_dataset["validation"],
         tokenizer=tokenizer,
-        compute_metrics=partial(common.compute_metrics, labels=labels, tasks=tasks),
-        model_init=model_init
+        compute_metrics=partial(common.compute_metrics, labels=labels, tasks=tasks, writer=writer),
+        model_init=model_init,
+        callbacks=[tfboard.MTTensorBoardCallback],
 )
+trainer.remove_callback(TensorBoardCallback)
 
 #####################################################################################
 ### Optuna Hyperparameter search
@@ -212,7 +228,7 @@ trainer.train()
 print("############### Evaluation:")
 common.save_eval_result_df = df_validation
 results = trainer.evaluate()
-trainer.save_model(f"mt-best-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}")
+trainer.save_model(best_output_dir)
 #common.show_memory("Memory after Evaluation")
 common.save_eval_result_df = None
 print(results)

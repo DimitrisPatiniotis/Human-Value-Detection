@@ -239,7 +239,7 @@ class SequenceClassificationHead(nn.Module):
                         match self.task.loss:
                             case "sigmoid_focal_loss":
                                 loss_fct = sigmoid_focal_loss
-                                loss = loss_fct(logits, labels, reduction=self.task.loss_reduction)
+                                loss = loss_fct(logits, labels, reduction=reduction)
                             case "SigmoidMultiLabelSoftMarginLoss":
                                 sigmoid = nn.Sigmoid()
                                 logits = sigmoid(logits)
