@@ -192,18 +192,18 @@ def multi_label_metrics_do(y_true, y_pred, labels=None, prefix="", per_class=Fal
         f'{prefix}p':   precision,
         f'{prefix}r':   recall,
         f'{prefix}f1':  f1,
-        f'{prefix}mcm': mcm
+        f'{prefix}mcm': mcm.tolist()
         # f'{prefix}f1_m': f1_m
     }
     # Per class...
     if per_class:
         c_p, c_r, c_f1, _ = precision_recall_fscore_support(y_true=y_true, y_pred=y_pred, average=None, zero_division=0)
         for i, v in enumerate(c_p):
-            result[f'{prefix}z_p{i+1}-{labels[i]}'] = v
+            result[f'{prefix}z_p{i+1}-{labels[i]}'] = v.tolist()
         for i, v in enumerate(c_r):
-            result[f'{prefix}z_r{i+1}-{labels[i]}'] = v
+            result[f'{prefix}z_r{i+1}-{labels[i]}'] = v.tolist()
         for i, v in enumerate(c_f1):
-            result[f'{prefix}z_f{i+1}-{labels[i]}'] = v
+            result[f'{prefix}z_f{i+1}-{labels[i]}'] = v.tolist()
 
     return result
 

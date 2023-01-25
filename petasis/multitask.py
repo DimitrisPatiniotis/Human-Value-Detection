@@ -16,20 +16,20 @@ seed = 2022
 common.setSeeds(seed)
 
 
-from transformers import AutoModelForSequenceClassification
+# from transformers import AutoModelForSequenceClassification
 
-## Read dataset...
+# Read dataset...
 datadir = '../Data'
 df_train, df_validation, df_test = common.getData(datadir)
 dataset = common.getDatasets(df_train, df_validation, df_test)
 
-## Get dataset labels...
+# Get dataset labels...
 labels = [label for label in dataset['train'].features.keys() if label not in common.dataLabels]
 id2label = {idx:label for idx, label in enumerate(labels)}
 label2id = {label:idx for idx, label in enumerate(labels)}
-#print("Labels:", labels)
+# print("Labels:", labels)
 tfboard.display_labels=labels
-## Get class weights...
+# Get class weights...
 loss_pos_weights   = None
 loss_class_weights = None
 
@@ -37,10 +37,10 @@ loss_class_weights = None
 ## Parameters
 ############################################################
 pretrained_model_name = "bert-base-uncased"
-#pretrained_model_name = "bert-large-uncased"
-#pretrained_model_name = "facebook/bart-base"
+# pretrained_model_name = "bert-large-uncased"
+# pretrained_model_name = "facebook/bart-base"
 learning_rate         = 2e-5
-#learning_rate         = 3e-3
+# learning_rate         = 3e-3
 batch_size            = 1024
 metric_name           = "f1"
 num_train_epochs      = 32
@@ -49,6 +49,7 @@ use_pos_weights       = True
 freeze_layers_bert    = False
 max_length            = 200
 hperparam_search      = False
+save_checkpoints      = True
 output_dir            = f"runs/mt-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
 best_output_dir       = f"runs/mt-best-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
 tensorboard_dir       = f"runs/mt-tb-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
@@ -77,18 +78,17 @@ if use_pos_weights:
 args = TrainingArguments(
     output_dir                  = output_dir,
     evaluation_strategy         = "epoch",
-    #save_strategy               = "epoch",
-    save_strategy               = "no",
+    save_strategy               = "epoch" if save_checkpoints else "no",
     eval_steps                  = 10,
     learning_rate               = learning_rate,
     per_device_train_batch_size = batch_size,
     per_device_eval_batch_size  = batch_size,
     num_train_epochs            = num_train_epochs,
     weight_decay                = 0.01,
-    load_best_model_at_end      = False,
+    load_best_model_at_end      = True if save_checkpoints else False,
     metric_for_best_model       = metric_name,
     seed                        = seed,
-    #push_to_hub=True,
+    # push_to_hub=True,
 )
 
 task_layers = [
@@ -97,8 +97,8 @@ task_layers = [
 
 tid = 0
 tasks = [
-    Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="CrossEntropyLoss",         loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
-    Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="MultiLabelSoftMarginLoss", loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
+    #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="CrossEntropyLoss",         loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
+    #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="MultiLabelSoftMarginLoss", loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
     Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="BCEWithLogitsLoss",        loss_reduction="sum", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
     #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="SigmoidMultiLabelSoftMarginLoss", loss_reduction="sum", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
 
