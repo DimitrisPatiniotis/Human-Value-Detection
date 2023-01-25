@@ -49,7 +49,7 @@ use_pos_weights       = True
 freeze_layers_bert    = False
 max_length            = 200
 hperparam_search      = False
-save_checkpoints      = True
+save_checkpoints      = False
 output_dir            = f"runs/mt-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
 best_output_dir       = f"runs/mt-best-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
 tensorboard_dir       = f"runs/mt-tb-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
@@ -92,9 +92,10 @@ args = TrainingArguments(
 )
 
 task_layers = [
-    #TaskLayer(in_features=768, out_features=100, linear_features=100, activation="Conv"),
+    # TaskLayer(in_features=768, out_features=100, activation=None),
+    TaskLayer(layer_type="Conv1d", in_channels=1, out_channels=1, kernel_size=3, activation=None),
     #TaskLayer(out_features=60, linear_features=60, activation="ReLU"),
-    TaskLayer(out_features=256, linear_features=768, activation="AvgPool"),
+    #TaskLayer(out_features=256, linear_features=768, activation="AvgPool"),
     #TaskLayer(out_features=60, linear_features=60, activation="ReLU"),
 ]
 
@@ -149,7 +150,7 @@ def model_init(trial=None):
 
 
     model = instantiate_model(pretrained_model_name, tasks, freeze_layers_bert)
-    #print(model)
+    # print(model)
     summary(model, input_size=(2, max_length), depth=4, dtypes=['torch.IntTensor'], device="cpu")
 
     #print(dict(model.named_parameters()))

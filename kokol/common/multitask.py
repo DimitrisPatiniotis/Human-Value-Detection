@@ -7,14 +7,26 @@ from transformers import AutoModel
 import torch
 from torchvision.ops.focal_loss import sigmoid_focal_loss
 from torchinfo import summary
+import math
 
 @dataclass
 class TaskLayer:
     out_features: int = 0
     in_features: int = 0
-    linear_features: int = 0
+    layer_type: str = "Linear"
     activation: str = "ReLU"
     dropout_p: float = None
+    # For convolutions
+    in_channels: int  = 1       # Number of channels in the input image
+    out_channels: int = 1       # Number of channels produced by the convolution
+    kernel_size: int  = 3       # Size of the convolving kernel
+    stride: int       = 1       # Stride of the convolution. Default: 1
+    padding: int      = 0       # Padding added to both sides of the input. Default: 0
+    padding_mode: str = 'zeros' # 'zeros', 'reflect', 'replicate' or 'circular'. Default: 'zeros'
+    dilation: int     = 1       # Spacing between kernel elements. Default: 1
+    groups: int       = 1       # Number of blocked connections from input channels to output channels. Default: 1
+    bias: bool        = True    # If True, adds a learnable bias to the output. Default: True
+
 
 @dataclass
 class Task:
@@ -171,22 +183,37 @@ class SequenceClassificationHead(nn.Module):
                 ## Dropout...
                 if tl.dropout_p is not None:
                     self.layers.append(nn.Dropout(tl.dropout_p))
-                if tl.out_features > 0:
-                    if tl.linear_features > 0:
-                        layer = nn.Linear(input_size, tl.linear_features)
-                    else:
-                        layer = nn.Linear(input_size, tl.out_features)
-                    self._init_weights(layer)
-                    self.layers.append(layer)
-                match tl.activation:
-                    case "SELU":
-                        self.layers.append(nn.SELU())
-                    case "Conv":
-                        self.layers.append(nn.Conv1d(tl.in_features, tl.out_features, 3))
-                    case "AvgPool":
-                        self.layers.append(nn.AvgPool1d(3))
+                match tl.layer_type:
+                    case "Conv1d":
+                        layer = nn.Conv1d(in_channels=tl.in_channels,
+                                                     out_channels=tl.out_channels,
+                                                     kernel_size=tl.kernel_size,
+                                                     stride=tl.stride,
+                                                     padding=tl.padding,
+                                                     padding_mode=tl.padding_mode,
+                                                     dilation=tl.dilation,
+                                                     groups=tl.groups,
+                                                     bias=tl.bias)
+                        self._init_weights(layer)
+                        tl.out_features = math.floor((input_size + 2 * tl.padding - tl.dilation * (tl.kernel_size - 1) - 1) / tl.stride + 1)
+                        self.layers.append(layer)
+                    case "AvgPool1d":
+                        layer = nn.AvgPool1d(tl.kernel_size)
+                        self._init_weights(layer)
+                        tl.out_features = input_size / tl.kernel_size
+                        self.layers.append(layer)
                     case _:
-                        self.layers.append(nn.ReLU())
+                        if tl.out_features > 0:
+                            layer = nn.Linear(input_size, tl.out_features)
+                            self._init_weights(layer)
+                            self.layers.append(layer)
+                input_size = tl.out_features
+                if tl.activation is not None:
+                    match tl.activation:
+                        case "SELU":
+                            self.layers.append(nn.SELU())
+                        case _:
+                            self.layers.append(nn.ReLU())
                 input_size = tl.out_features
         self.dropout = nn.Dropout(dropout_p)
         self.classifier = nn.Linear(input_size, num_labels)
@@ -204,8 +231,8 @@ class SequenceClassificationHead(nn.Module):
     def forward(self, sequence_output, pooled_output, labels=None, **kwargs):
         output = pooled_output
         for layer in self.layers:
-            if layer is nn.Conv1d:
-                output = layer(output.transpose(0, 1))
+            if isinstance(layer, nn.Conv1d):
+                output = layer(output.unsqueeze(1)).squeeze(1)
             else:
                 output = layer(output)
         output = self.dropout(output)
