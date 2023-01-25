@@ -151,6 +151,19 @@ def compute_positive_weights(df, labels):
     return torch.from_numpy(np.array(pos_weights))
 
 
+def remove_noisy_examples(df, classes=["Universalism: concern", "Security: personal", "Security: societal"]):
+    for c in classes:
+        print(c, df[c].sum())
+        for index, row in df.iterrows():
+            classes_row = row[-20:]
+            if classes_row.sum() > 3:
+                if classes_row[c] == 1:
+                    df.at[index, c] = 0
+    for c in classes:
+        print(c, df[c].sum())
+    return df
+
+
 save_eval_result_df = None
 
 
