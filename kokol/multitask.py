@@ -79,10 +79,10 @@ args = TrainingArguments(
 )
 
 task_layers = [
-    TaskLayer(in_features=768, out_features=100, linear_features=100, activation="Conv"),
-    TaskLayer(out_features=60, linear_features=60, activation="ReLU"),
-    TaskLayer(out_features=60, linear_features=180, activation="AvgPool"),
-    TaskLayer(out_features=60, linear_features=60, activation="ReLU"),
+    #TaskLayer(in_features=768, out_features=100, linear_features=100, activation="Conv"),
+    #TaskLayer(out_features=60, linear_features=60, activation="ReLU"),
+    TaskLayer(out_features=256, linear_features=768, activation="AvgPool"),
+    #TaskLayer(out_features=60, linear_features=60, activation="ReLU"),
 ]
 
 tid = 0

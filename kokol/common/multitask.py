@@ -37,12 +37,16 @@ class MultiTaskModel(nn.Module):
 
         self.encoder = AutoModel.from_pretrained(encoder_name_or_path)
 
+
         self.output_heads      = nn.ModuleDict()
         #self.output_heads_list = nn.ModuleList()
 
         self.tasks = tasks
         self.labels_name = {}
         for task in tasks:
+            if task.type == "seq_classification_siamese":
+                self.encoder2 = AutoModel.from_pretrained(encoder_name_or_path)
+
             decoder = self._create_output_head(self.encoder.config.hidden_size, task)
             # ModuleDict requires keys to be strings
             self.output_heads[str(task.id)] = decoder
@@ -61,6 +65,8 @@ class MultiTaskModel(nn.Module):
     def _create_output_head(encoder_hidden_size: int, task):
         if task.type == "seq_classification":
             return SequenceClassificationHead(encoder_hidden_size, task.num_labels, task=task)
+        elif task.type == "seq_classification_siamese":
+            return TokenClassificationHead(encoder_hidden_size, task.num_labels, task=task)
         elif task.type == "token_classification":
             return TokenClassificationHead(encoder_hidden_size, task.num_labels, task=task)
         else:
@@ -199,7 +205,146 @@ class SequenceClassificationHead(nn.Module):
         output = pooled_output
         for layer in self.layers:
             if layer is nn.Conv1d:
-                output = layer(output.transpose(1, 2).transpose(0, 1))
+                output = layer(output.transpose(0, 1))
+            else:
+                output = layer(output)
+        output = self.dropout(output)
+        logits = self.classifier(output)
+        # print("=>", self.task.id, self.task.name)
+        # print(logits, logits.shape)
+        # print(labels, labels.shape)
+
+        loss = None
+        if labels is not None:
+            # print(labels.dim())
+            # if labels.dim() != 1:
+            #     # Remove padding
+            #     labels = labels[:, 0]
+
+            if self.task is None:
+                loss_fct = nn.CrossEntropyLoss()
+                loss = loss_fct(
+                    logits.view(-1, self.num_labels), labels.long().view(-1)
+                )
+            else:
+                # print(f"Problem type: {self.task.problem_type}")
+                match self.task.problem_type:
+                    case "regression":
+                        # print(f"Problem type: regression")
+                        loss_fct = nn.MSELoss()
+                        if self.num_labels == 1:
+                            loss = loss_fct(logits.squeeze(), labels.squeeze())
+                        else:
+                            loss = loss_fct(logits, labels)
+                    case "single_label_classification":
+                        # print(f"Problem type: single_label_classification")
+                        if self.task.loss_class_weight is None:
+                            loss_fct = nn.CrossEntropyLoss(reduction=self.task.loss_reduction)
+                        else:
+                            loss_fct = nn.CrossEntropyLoss(reduction=self.task.loss_reduction, weight=self.task.loss_class_weight.to(logits.device))
+                        # Labels are expected as class indices...
+                        loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
+                    case "multi_label_classification":
+                        # print(f"Problem type: multi_label_classification")
+                        # print(logits, logits.shape)
+                        # print(labels, labels.shape)
+                        reduction = self.task.loss_reduction
+                        if self.task.loss_class_weight is not None:
+                            ## MultiLabelSoftMarginLoss supports class weights...
+                            if not self.task.loss in ["MultiLabelSoftMarginLoss", "SigmoidMultiLabelSoftMarginLoss", "CrossEntropyLoss"]:
+                                reduction = "none"
+
+                        match self.task.loss:
+                            case "sigmoid_focal_loss":
+                                loss_fct = sigmoid_focal_loss
+                                loss = loss_fct(logits, labels, reduction=self.task.loss_reduction)
+                            case "SigmoidMultiLabelSoftMarginLoss":
+                                sigmoid = nn.Sigmoid()
+                                logits = sigmoid(logits)
+                                loss_fct = nn.MultiLabelSoftMarginLoss(weight=self.task.loss_class_weight.to(logits.device), reduction=reduction)
+                                loss = loss_fct(logits, labels)
+                            case "MultiLabelSoftMarginLoss":
+                                loss_fct = nn.MultiLabelSoftMarginLoss(weight=self.task.loss_class_weight.to(logits.device), reduction=reduction)
+                                loss = loss_fct(logits, labels)
+                            case "CrossEntropyLoss":
+                                ## https://discuss.pytorch.org/t/multilabel-classification-with-class-imbalance/57345
+                                # Apply softmax...
+                                # https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html
+                                # I think softmax is implicitely applied.
+                                #softmax = torch.nn.Softmax(dim=1)
+                                #logits = softmax(logits)
+                                if self.task.loss_class_weight is None:
+                                    loss_fct = nn.CrossEntropyLoss(reduction=self.task.loss_reduction)
+                                else:
+                                    loss_fct = nn.CrossEntropyLoss(reduction=self.task.loss_reduction, weight=self.task.loss_class_weight.to(logits.device))
+                                loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1, self.num_labels))
+                            case _:
+                                loss_fct = nn.BCEWithLogitsLoss(reduction=reduction, pos_weight=self.task.loss_pos_weight.to(logits.device))
+                                loss = loss_fct(logits, labels)
+                        if reduction == "none":
+                            match self.task.loss_reduction:
+                                case "sum":
+                                    loss = (loss * self.task.loss_class_weight.to(logits.device)).sum()
+                                case _:
+                                    loss = (loss * self.task.loss_class_weight.to(logits.device)).mean()
+
+                    case _:
+                        raise Exception(f"Unknown problem type: {self.task.problem_type} for task {self.task}")
+
+        if loss is not None and self.task.loss_reduction_weight is not None:
+            # print(loss, self.task.loss_reduction_weight)
+            loss *= self.task.loss_reduction_weight
+        # print(loss)
+        return logits, loss
+
+class SiameseClassificationHead(nn.Module):
+    def __init__(self, hidden_size, num_labels, task=None, dropout_p=0.1):
+        super().__init__()
+        self.num_labels = num_labels
+        self.task = task
+        self.layers = torch.nn.ModuleList()
+
+        input_size = hidden_size
+        if task.task_layers is not None:
+            for tl in task.task_layers:
+                ## Dropout...
+                if tl.dropout_p is not None:
+                    self.layers.append(nn.Dropout(tl.dropout_p))
+                if tl.out_features > 0:
+                    if tl.linear_features > 0:
+                        layer = nn.Linear(input_size, tl.linear_features)
+                    else:
+                        layer = nn.Linear(input_size, tl.out_features)
+                    self._init_weights(layer)
+                    self.layers.append(layer)
+                match tl.activation:
+                    case "SELU":
+                        self.layers.append(nn.SELU())
+                    case "Conv":
+                        self.layers.append(nn.Conv1d(tl.in_features, tl.out_features, 3))
+                    case "AvgPool":
+                        self.layers.append(nn.AvgPool1d(3))
+                    case _:
+                        self.layers.append(nn.ReLU())
+                input_size = tl.out_features
+        self.dropout = nn.Dropout(dropout_p)
+        self.classifier = nn.Linear(input_size, num_labels)
+
+        self._init_weights()
+
+    def _init_weights(self, layer=None):
+        if layer is None:
+            layer = self.classifier
+        #layer.weight.data.normal_(mean=0.0, std=0.02)
+        nn.init.xavier_normal_(layer.weight.data)
+        if layer.bias is not None:
+            layer.bias.data.zero_()
+
+    def forward(self, sequence_output, pooled_output, labels=None, **kwargs):
+        output = pooled_output
+        for layer in self.layers:
+            if layer is nn.Conv1d:
+                output = layer(output.transpose(0, 1))
             else:
                 output = layer(output)
         output = self.dropout(output)
