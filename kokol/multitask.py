@@ -93,16 +93,16 @@ args = TrainingArguments(
 
 task_layers = [
     # TaskLayer(in_features=768, out_features=100, activation=None),
-    TaskLayer(layer_type="Conv1d", in_channels=1, out_channels=1, kernel_size=3, activation=None),
-    #TaskLayer(out_features=60, linear_features=60, activation="ReLU"),
-    #TaskLayer(out_features=256, linear_features=768, activation="AvgPool"),
-    #TaskLayer(out_features=60, linear_features=60, activation="ReLU"),
+    TaskLayer(layer_type="Conv1d", in_channels=1, out_channels=1, kernel_size=5, padding=1, activation=None),
+    TaskLayer(out_features=768, activation="ReLU"),
+    TaskLayer(layer_type="AvgPool1d", kernel_size=3),
+    TaskLayer(out_features=256, activation="ReLU"),
 ]
 
 tid = 0
 tasks = [
     Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="CrossEntropyLoss",         loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
-    #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="MultiLabelSoftMarginLoss", loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
+    Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="MultiLabelSoftMarginLoss", loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
     #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="BCEWithLogitsLoss",        loss_reduction="mean", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
     #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="SigmoidMultiLabelSoftMarginLoss", loss_reduction="sum", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
 

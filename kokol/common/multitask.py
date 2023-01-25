@@ -78,7 +78,7 @@ class MultiTaskModel(nn.Module):
         if task.type == "seq_classification":
             return SequenceClassificationHead(encoder_hidden_size, task.num_labels, task=task)
         elif task.type == "seq_classification_siamese":
-            return TokenClassificationHead(encoder_hidden_size, task.num_labels, task=task)
+            return SiameseClassificationHead(encoder_hidden_size, task.num_labels, task=task)
         elif task.type == "token_classification":
             return TokenClassificationHead(encoder_hidden_size, task.num_labels, task=task)
         else:
@@ -199,8 +199,8 @@ class SequenceClassificationHead(nn.Module):
                         self.layers.append(layer)
                     case "AvgPool1d":
                         layer = nn.AvgPool1d(tl.kernel_size)
-                        self._init_weights(layer)
-                        tl.out_features = input_size / tl.kernel_size
+                        #self._init_weights(layer)
+                        tl.out_features = math.floor(input_size / tl.kernel_size)
                         self.layers.append(layer)
                     case _:
                         if tl.out_features > 0:

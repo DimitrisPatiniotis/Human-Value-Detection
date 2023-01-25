@@ -1,5 +1,5 @@
 from transformers.integrations import TensorBoardCallback
-from pretty_confusion_matrix import pp_matrix
+#from pretty_confusion_matrix import pp_matrix
 import matplotlib.pyplot as plt
 from sklearn.metrics import ConfusionMatrixDisplay
 import numpy as np
