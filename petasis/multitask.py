@@ -9,41 +9,18 @@ import numpy as np
 import pandas as pd
 from torchinfo import summary
 import optuna
-from torch.utils.tensorboard import SummaryWriter
 from transformers.integrations import TensorBoardCallback
-
-seed = 2022
-common.setSeeds(seed)
-
-
-# from transformers import AutoModelForSequenceClassification
-
-# Read dataset...
-datadir = '../Data'
-df_train, df_validation, df_test = common.getData(datadir)
-# Maria's idea...
-df_train = common.remove_noisy_examples(df_train)
-dataset = common.getDatasets(df_train, df_validation, df_test)
-
-# Get dataset labels...
-labels = [label for label in dataset['train'].features.keys() if label not in common.dataLabels]
-id2label = {idx:label for idx, label in enumerate(labels)}
-label2id = {label:idx for idx, label in enumerate(labels)}
-# print("Labels:", labels)
-tfboard.display_labels=labels
-# Get class weights...
-loss_pos_weights   = None
-loss_class_weights = None
 
 ############################################################
 ## Parameters
 ############################################################
+seed = 2022
 pretrained_model_name = "bert-base-uncased"
 # pretrained_model_name = "bert-large-uncased"
 # pretrained_model_name = "facebook/bart-base"
 learning_rate         = 2e-5
 # learning_rate         = 3e-3
-batch_size            = 1024
+batch_size            = 8
 metric_name           = "f1"
 num_train_epochs      = 32
 use_class_weights     = True
@@ -56,17 +33,43 @@ output_dir            = f"runs/mt-{pretrained_model_name}-{num_train_epochs}-{ba
 best_output_dir       = f"runs/mt-best-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
 tensorboard_dir       = f"runs/mt-tb-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
 hperparam_search_name = f"runs/mt-std-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
+Sentence1             = 'P+S+C'
+Sentence2             = None
 
-writer = SummaryWriter(tensorboard_dir)
+common.setSeeds(seed)
+
+# from transformers import AutoModelForSequenceClassification
+
+# Read dataset...
+datadir = '../Data'
+df_train, df_validation, df_test = common.getData(datadir)
+
+# Get dataset labels...
+#labels = [label for label in dataset['train'].features.keys() if label not in common.dataLabels]
+labels = [label for label in df_train.columns if label not in common.dataLabels]
+id2label = {idx:label for idx, label in enumerate(labels)}
+label2id = {label:idx for idx, label in enumerate(labels)}
+# print("Labels:", len(labels), labels)
+tfboard.display_labels=labels
+
+# Maria's idea...
+df_train = common.remove_noisy_examples(df_train, labels=labels, classes=None)
+dataset = common.getDatasets(df_train, df_validation, df_test)
+
+# Get class weights...
+loss_pos_weights   = None
+loss_class_weights = None
 
 if not freeze_layers_bert:
     if "large" in pretrained_model_name:
-        batch_size = 32
+        if batch_size > 32:
+            batch_size = 32
     else:
-        batch_size = 64
+        if batch_size > 64:
+            batch_size = 64
 
 if use_class_weights:
-    loss_class_weights = common.compute_class_weights2(pd.concat([df_train, df_validation], ignore_index=True, sort=False), labels)
+    loss_class_weights = common.compute_class_weights3(pd.concat([df_train, df_validation], ignore_index=True, sort=False), labels)
     print("Class weights: sum()=", sum(loss_class_weights))
     for i, lbl in enumerate(labels):
         print(lbl, "=", loss_class_weights[i])
@@ -99,20 +102,20 @@ task_layers = [
 
 tid = 0
 tasks = [
-    #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="CrossEntropyLoss",         loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
-    #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="MultiLabelSoftMarginLoss", loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
-    Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="BCEWithLogitsLoss",        loss_reduction="sum", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
+    #Task(id=(tid:=tid+1), name="v-CE-sum", num_labels=len(labels),   problem_type="multi_label_classification", loss="CrossEntropyLoss",         loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
+    #Task(id=(tid:=tid+1), name="v-MLSM-sum", num_labels=len(labels), problem_type="multi_label_classification", loss="MultiLabelSoftMarginLoss", loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
+    Task(id=(tid:=tid+1), name="v-BCE-sum", num_labels=len(labels),  problem_type="multi_label_classification", loss="BCEWithLogitsLoss",        loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
+    #Task(id=(tid:=tid+1), name="v-SF-sum", num_labels=len(labels),   problem_type="multi_label_classification", loss="sigmoid_focal_loss",       loss_reduction="sum")
     #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="SigmoidMultiLabelSoftMarginLoss", loss_reduction="sum", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
-
     #Task(id=(tid:=tid+1), name="stance", num_labels=2, problem_type="single_label_classification", loss="sigmoid_focal_loss", loss_reduction="sum", labels="labels_stance")
-    #Task(id=(tid:=tid+1), name="stance", num_labels=len(labels), problem_type="multi_label_classification", loss="sigmoid_focal_loss", loss_reduction="mean")
 
 ]
 print("Task ids:", [t.id for t in tasks])
+tfboard.filename_suffix = "_".join([t.name for t in tasks])
 
 ## Tokenise dataset...
 tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
-encoded_dataset = common.encodeDataset(dataset, labels, tokenizer, max_length, sent1="Premise", sent2="Conclusion", task_ids=[t.id for t in tasks])
+encoded_dataset = common.encodeDataset(dataset, labels, tokenizer, max_length, sent1=Sentence1, sent2=Sentence2, task_ids=[t.id for t in tasks])
 
 
 def instantiate_model(pretrained_model_name, tasks, freezeLayers=False):
@@ -162,7 +165,7 @@ trainer = Trainer(
         train_dataset = encoded_dataset["train"],
         eval_dataset  = encoded_dataset["validation"],
         tokenizer=tokenizer,
-        compute_metrics=partial(common.compute_metrics, labels=labels, tasks=tasks, writer=writer),
+        compute_metrics=partial(common.compute_metrics, labels=labels, tasks=tasks),
         model_init=model_init,
         callbacks=[tfboard.MTTensorBoardCallback],
 )

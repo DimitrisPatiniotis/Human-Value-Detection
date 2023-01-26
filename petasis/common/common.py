@@ -8,6 +8,7 @@ from sklearn.metrics import f1_score, roc_auc_score, accuracy_score, precision_s
 from sklearn.metrics import multilabel_confusion_matrix
 from sklearn.utils.class_weight import compute_class_weight
 from transformers import EvalPrediction
+from transformers.trainer_utils import enable_full_determinism
 from collections import Counter
 import os
 import csv
@@ -20,6 +21,7 @@ def setSeeds(seed=2022):
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+    enable_full_determinism(seed)
 
 
 def show_memory(text=''):
@@ -30,11 +32,13 @@ def show_memory(text=''):
     print(f'\n\n{text}\nTotal: {t}\nCached: {c} \nAllocated: {a} \nFree in cache: {f}\n\n')
 
 
-dataLabels = ['Argument ID', 'Conclusion', 'Stance', 'Premise', '__index_level_0__', 'P+S', 'C+S', 'stance_boolean']
+dataLabels = ['Argument ID', 'Conclusion', 'Stance', 'Premise', '__index_level_0__', 'P+S', 'C+S', 'P+C', 'P+S+C', 'stance_boolean']
 
 
 def getData(datadir):
     df_args = pd.read_csv(datadir + '/arguments-training.tsv', sep = '\t')
+    df_args['P+S+C'] = df_args[['Premise', 'Stance', 'Conclusion']].apply(lambda x: ' '.join(x), axis=1)
+    df_args['P+C'] = df_args[['Premise',    'Conclusion']].apply(lambda x: ' '.join(x), axis=1)
     df_args['P+S'] = df_args[['Premise',    'Stance']].apply(lambda x: ' '.join(x), axis=1)
     df_args['C+S'] = df_args[['Conclusion', 'Stance']].apply(lambda x: ' '.join(x), axis=1)
     df_args['stance_boolean'] = df_args['Stance'].map({"against": 0, "in favor of": 1, "in favour of": 1})
@@ -44,6 +48,8 @@ def getData(datadir):
     df_train = df_args.merge(df_lbls, how="left", on="Argument ID")
 
     df_args = pd.read_csv(datadir + '/arguments-validation.tsv', sep = '\t')
+    df_args['P+S+C'] = df_args[['Premise', 'Stance', 'Conclusion']].apply(lambda x: ' '.join(x), axis=1)
+    df_args['P+C'] = df_args[['Premise',    'Conclusion']].apply(lambda x: ' '.join(x), axis=1)
     df_args['P+S'] = df_args[['Premise',    'Stance']].apply(lambda x: ' '.join(x), axis=1)
     df_args['C+S'] = df_args[['Conclusion', 'Stance']].apply(lambda x: ' '.join(x), axis=1)
     df_args['stance_boolean'] = df_args['Stance'].map({"against": 0, "in favor of": 1, "in favour of": 1})
@@ -55,6 +61,8 @@ def getData(datadir):
     #exit(0)
 
     df_args = pd.read_table(datadir + '/arguments-test.tsv')
+    df_args['P+S+C'] = df_args[['Premise', 'Stance', 'Conclusion']].apply(lambda x: ' '.join(x), axis=1)
+    df_args['P+C'] = df_args[['Premise',    'Conclusion']].apply(lambda x: ' '.join(x), axis=1)
     df_args['P+S'] = df_args[['Premise',    'Stance']].apply(lambda x: ' '.join(x), axis=1)
     df_args['C+S'] = df_args[['Conclusion', 'Stance']].apply(lambda x: ' '.join(x), axis=1)
     df_args['stance_boolean'] = df_args['Stance'].map({"against": 0, "in favor of": 1, "in favour of": 1})
@@ -75,9 +83,16 @@ def getDatasets(df_train, df_validation, df_test):
 
 def preprocess_data(examples, labels, tokenizer, max_length=200, task_ids=[0], sent1="C+S", sent2="Premise"):
     # take a batch of texts
-    sentA = examples[sent1]
+    if sent1 in examples:
+        sentA = examples[sent1]
+    else:
+        raise Exception("encodeDataset: wrong paramater for sent1, value not a column in the data.")
+
     # conclusion = examples["Conclusion"]
-    sentB = examples[sent2]
+    if sent2 in examples:
+        sentB = examples[sent2]
+    else:
+        sentB = None
     # stance     = examples["Stance"]
     # encode them
     encoding = tokenizer(sentA, sentB, padding="max_length", truncation=True, max_length=max_length)
@@ -140,6 +155,17 @@ def compute_class_weights2(df, labels):
     return torch.special.softmax(torch.from_numpy(np.array(class_weights)), 0)
 
 
+def compute_class_weights3(df, labels):
+    counter = Counter()
+    for label in labels:
+        counter[label] += df[label].sum()
+    _, total = counter.most_common(1)[0]
+    class_weights = []
+    for label in labels:
+        class_weights.append(total / counter[label])
+    return torch.from_numpy(np.array(class_weights))
+
+
 def compute_positive_weights(df, labels):
     counter = Counter()
     for label in labels:
@@ -151,16 +177,30 @@ def compute_positive_weights(df, labels):
     return torch.from_numpy(np.array(pos_weights))
 
 
-def remove_noisy_examples(df, classes=["Universalism: concern", "Security: personal", "Security: societal"]):
+def remove_noisy_examples(df, labels, classes=["Universalism: concern", "Security: personal", "Security: societal"]):
+    # Examine classes in decreasing frequency...
+    if classes is None:
+        counter = Counter()
+        for c in labels:
+            counter[c] += df[c].sum()
+        classes = []
+        for c, f in counter.most_common():
+            if f < 700:
+                break
+            classes.append(c)
+
     for c in classes:
         print(c, df[c].sum())
+        removed = 0
         for index, row in df.iterrows():
             classes_row = row[-20:]
             if classes_row.sum() > 3:
                 if classes_row[c] == 1:
                     df.at[index, c] = 0
-    for c in classes:
-        print(c, df[c].sum())
+                    removed += 1
+        if removed < 1:
+            break
+        print(c, "removed:", removed, "=>", df[c].sum())
     return df
 
 
@@ -265,8 +305,16 @@ def multi_label_metrics(predictions, true_labels, labels=[], tasks=None, writer=
         tm = multi_label_metrics_do(y_true=y_true, y_pred=task_y_pred, prefix=f"t{i+1}_", labels=labels, per_class=False)
         task_metrics = task_metrics | tm
         # print(f"Task {i+1}:", tm)
+    #
+    # VOTING
+    #
+
     # Implement voting (take mode)...
     y_pred = y_pred.mode(dim=-1)[0].numpy()
+
+    # Take sum...
+    #y_pred = y_pred.sum(dim=-1)
+    #y_pred = (y_pred > 0).float().numpy()
 
     # Save results...
     save_eval_results(y_pred, labels=labels)

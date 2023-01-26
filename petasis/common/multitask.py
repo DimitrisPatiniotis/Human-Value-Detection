@@ -184,7 +184,8 @@ class SequenceClassificationHead(nn.Module):
         #layer.weight.data.normal_(mean=0.0, std=0.02)
         nn.init.xavier_normal_(layer.weight.data)
         if layer.bias is not None:
-            layer.bias.data.zero_()
+            # layer.bias.data.zero_()
+            nn.init.uniform_(layer.bias.data, -1.43, 1.43)
 
     def forward(self, sequence_output, pooled_output, labels=None, **kwargs):
         output = pooled_output
