@@ -30,8 +30,20 @@ def show_memory(text=''):
     print(f'\n\n{text}\nTotal: {t}\nCached: {c} \nAllocated: {a} \nFree in cache: {f}\n\n')
 
 
-dataLabels = ['Argument ID', 'Conclusion', 'Stance', 'Premise', '__index_level_0__', 'P+S', 'C+S', 'stance_boolean']
+dataLabelsBasic = ['Argument ID', 'Conclusion', 'Stance', 'Premise', '__index_level_0__', 'P+S', 'C+S', 'stance_boolean']
+dataLabelsGroup1 = ['Self-direction: thought','Self-direction: action','Achievement','Power: dominance','Power: resources','Security: personal','Security: societal','Tradition','Conformity: rules','Benevolence: caring','Benevolence: dependability','Universalism: concern','Universalism: nature','Universalism: tolerance','Universalism: objectivity']
 
+dataLabelsGroup2 = ['Self-direction: thought','Self-direction: action','Stimulation','Hedonism','Achievement','Power: dominance','Power: resources','Face','Security: personal','Security: societal','Tradition','Conformity: rules','Conformity: interpersonal','Humility','Benevolence: caring','Benevolence: dependability','Universalism: concern','Universalism: nature','Universalism: tolerance','Universalism: objectivity']
+dataLabelsGroup3 = ['Self-direction: thought','Self-direction: action','Stimulation','Hedonism','Achievement','Power: dominance','Power: resources','Face','Security: personal','Security: societal','Tradition','Conformity: rules','Conformity: interpersonal','Humility','Benevolence: caring','Benevolence: dependability','Universalism: concern','Universalism: nature','Universalism: tolerance','Universalism: objectivity']
+dataLabelsGroup4 = ['Self-direction: thought','Self-direction: action','Stimulation','Hedonism','Achievement','Power: dominance','Power: resources','Face','Security: personal','Security: societal','Tradition','Conformity: rules','Conformity: interpersonal','Humility','Benevolence: caring','Benevolence: dependability','Universalism: concern','Universalism: nature','Universalism: tolerance','Universalism: objectivity']
+dataLabelsGroup5 = ['Self-direction: thought','Self-direction: action','Stimulation','Hedonism','Achievement','Power: dominance','Power: resources','Face','Security: personal','Security: societal','Tradition','Conformity: rules','Conformity: interpersonal','Humility','Benevolence: caring','Benevolence: dependability','Universalism: concern','Universalism: nature','Universalism: tolerance','Universalism: objectivity']
+dataLabelsGroup6 = ['Self-direction: thought','Self-direction: action','Stimulation','Hedonism','Achievement','Power: dominance','Power: resources','Face','Security: personal','Security: societal','Tradition','Conformity: rules','Conformity: interpersonal','Humility','Benevolence: caring','Benevolence: dependability','Universalism: concern','Universalism: nature','Universalism: tolerance','Universalism: objectivity']
+dataLabelsGroup7 = ['Self-direction: thought','Self-direction: action','Stimulation','Hedonism','Achievement','Power: dominance','Power: resources','Face','Security: personal','Security: societal','Tradition','Conformity: rules','Conformity: interpersonal','Humility','Benevolence: caring','Benevolence: dependability','Universalism: concern','Universalism: nature','Universalism: tolerance','Universalism: objectivity']
+dataLabelsGroup8 = ['Self-direction: thought','Self-direction: action','Stimulation','Hedonism','Achievement','Power: dominance','Power: resources','Face','Security: personal','Security: societal','Tradition','Conformity: rules','Conformity: interpersonal','Humility','Benevolence: caring','Benevolence: dependability','Universalism: concern','Universalism: nature','Universalism: tolerance','Universalism: objectivity']
+
+dataLabels = []
+dataLabels.extend(dataLabelsBasic)
+dataLabels.extend(dataLabelsGroup1)
 
 def getData(datadir):
     df_args = pd.read_csv(datadir + '/arguments-training.tsv', sep = '\t')
@@ -73,34 +85,60 @@ def getDatasets(df_train, df_validation, df_test):
     return dataset
 
 
-def preprocess_data(examples, labels, tokenizer, max_length=200, task_ids=[0], sent1="C+S", sent2="Premise"):
+def preprocess_data(examples, labels, tokenizer, max_length=200, task_ids=[0], sent1="C+S", sent2="Premise", keep_separate:bool = False):
     # take a batch of texts
     sentA = examples[sent1]
     # conclusion = examples["Conclusion"]
     sentB = examples[sent2]
     # stance     = examples["Stance"]
     # encode them
-    encoding = tokenizer(sentA, sentB, padding="max_length", truncation=True, max_length=max_length)
-    # add labels
-    labels_batch = {k: examples[k] for k in examples.keys() if k in labels}
-    # Test may not have labels...
-    if (len(labels_batch)):
-        # create numpy array of shape (batch_size, num_labels)
-        labels_matrix = np.zeros((len(sentA), len(labels)))
-        # fill numpy array
-        for idx, label in enumerate(labels):
-            labels_matrix[:, idx] = labels_batch[label]
+    if keep_separate:
+        encoding1 = tokenizer(sentA, None, padding="max_length", truncation=True, max_length=max_length)
+        encoding2 = tokenizer(sentB, None, padding="max_length", truncation=True, max_length=max_length)
 
-        encoding["labels"] = labels_matrix.tolist()
+        # add labels
+        labels_batch = {k: examples[k] for k in examples.keys() if k in labels}
+        # Test may not have labels...
+        if (len(labels_batch)):
+            # create numpy array of shape (batch_size, num_labels)
+            labels_matrix = np.zeros((len(sentA), len(labels)))
+            # fill numpy array
+            for idx, label in enumerate(labels):
+                labels_matrix[:, idx] = labels_batch[label]
+
+            encoding1["labels"] = labels_matrix.tolist()
+        else:
+            labels_matrix = np.zeros((len(sentA), len(labels)))
+            encoding1["labels"] = labels_matrix.tolist()
+        # Is it a multitask run?
+        if len(task_ids) > 0:
+            encoding1["labels_stance"] = examples["stance_boolean"]  # Interpreted as class indices...
+        # encoding["task_ids"] = [task_ids[0]] * len(encoding["labels"])
+
+        return encoding1
     else:
-        labels_matrix = np.zeros((len(sentA), len(labels)))
-        encoding["labels"] = labels_matrix.tolist()
-    # Is it a multitask run?
-    if len(task_ids) > 0:
-        encoding["labels_stance"] = examples["stance_boolean"]  # Interpreted as class indices...
-    # encoding["task_ids"] = [task_ids[0]] * len(encoding["labels"])
+        encoding = tokenizer(sentA, sentB, padding="max_length", truncation=True, max_length=max_length)
 
-    return encoding
+        # add labels
+        labels_batch = {k: examples[k] for k in examples.keys() if k in labels}
+        # Test may not have labels...
+        if (len(labels_batch)):
+            # create numpy array of shape (batch_size, num_labels)
+            labels_matrix = np.zeros((len(sentA), len(labels)))
+            # fill numpy array
+            for idx, label in enumerate(labels):
+                labels_matrix[:, idx] = labels_batch[label]
+
+            encoding["labels"] = labels_matrix.tolist()
+        else:
+            labels_matrix = np.zeros((len(sentA), len(labels)))
+            encoding["labels"] = labels_matrix.tolist()
+        # Is it a multitask run?
+        if len(task_ids) > 0:
+            encoding["labels_stance"] = examples["stance_boolean"]  # Interpreted as class indices...
+        # encoding["task_ids"] = [task_ids[0]] * len(encoding["labels"])
+
+        return encoding
 
 
 def encodeDataset(dataset, labels, tokenizer, max_length=200, sent1="C+S", sent2="Premise", task_ids=[0]):
@@ -113,7 +151,6 @@ def encodeDataset(dataset, labels, tokenizer, max_length=200, sent1="C+S", sent2
     encoded_dataset['test']       = encoded_dataset['test'].remove_columns(dataset['test'].column_names)
     encoded_dataset.set_format("torch")
     return encoded_dataset
-
 
 # From: https://stackoverflow.com/questions/54842067/how-to-calculate-class-weights-of-a-pandas-dataframe-for-keras
 def compute_class_weights(df, class_weight='balanced'):

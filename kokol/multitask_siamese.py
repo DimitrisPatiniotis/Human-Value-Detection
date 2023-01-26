@@ -21,12 +21,6 @@ common.setSeeds(seed)
 # Read dataset...
 datadir = '../Data'
 df_train, df_validation, df_test = common.getData(datadir)
-
-dataLabelsGroup2 = ['Self-direction: thought','Self-direction: action','Hedonism','Achievement','Power: dominance','Power: resources','Security: personal','Security: societal','Tradition','Conformity: rules','Benevolence: caring','Benevolence: dependability','Universalism: concern','Universalism: nature','Universalism: tolerance','Universalism: objectivity']
-
-df_train_new=df_train.loc[(df_train['Stimulation']==1) | (df_train['Hedonism']==1) | (df_train['Face']==1) | (df_train['Conformity: interpersonal']==1) | (df_train['Humility']==1)]
-df_train=df_train.sample(frac=0.1).merge(df_train_new)
-
 dataset = common.getDatasets(df_train, df_validation, df_test)
 
 # Get dataset labels...
@@ -48,9 +42,9 @@ pretrained_model_name = "bert-base-uncased"
 learning_rate         = 2e-5
 # learning_rate         = 3e-3
 batch_size            = 1024
-metric_name           = "loss"
-num_train_epochs      = 128
-use_class_weights     = False
+metric_name           = "f1"
+num_train_epochs      = 32
+use_class_weights     = True
 use_pos_weights       = True
 freeze_layers_bert    = False
 max_length            = 200
@@ -65,9 +59,9 @@ writer = SummaryWriter(tensorboard_dir)
 
 if not freeze_layers_bert:
     if "large" in pretrained_model_name:
-        batch_size = 8
+        batch_size = 16
     else:
-        batch_size = 8
+        batch_size = 32
 
 if use_class_weights:
     loss_class_weights = common.compute_class_weights2(pd.concat([df_train, df_validation], ignore_index=True, sort=False), labels)
@@ -98,23 +92,18 @@ args = TrainingArguments(
 )
 
 task_layers = [
-    TaskLayer(layer_type="Conv1d", in_channels=1, out_channels=1, kernel_size=4),
-    TaskLayer(layer_type="Activation", activation="SiLU"),
-    TaskLayer(layer_type="MaxPool1d", kernel_size=2),
-    TaskLayer(out_features=128, activation="SiLU", dropout_p=0.25),
-]
-task_layers2 = [
-    TaskLayer(layer_type="Conv1d", in_channels=1, out_channels=1, kernel_size=4),
-    TaskLayer(layer_type="Activation", activation="SiLU"),
+    # TaskLayer(in_features=768, out_features=100, activation=None),
+    TaskLayer(layer_type="Conv1d", in_channels=1, out_channels=1, kernel_size=4, padding=1, activation=None),
+    TaskLayer(out_features=768, activation="SiLU", dropout_p=0.25),
     TaskLayer(layer_type="AvgPool1d", kernel_size=2),
-    TaskLayer(out_features=128, activation="SiLU", dropout_p=0.25),
+    TaskLayer(out_features=192, activation="SiLU", dropout_p=0.25),
 ]
 
 tid = 0
 tasks = [
-    Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="CrossEntropyLoss",         loss_reduction="mean",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers, task_layers2=task_layers2),
-    #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="MultiLabelSoftMarginLoss", loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers, task_layers2=task_layers2),
-    Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="BCEWithLogitsLoss",        loss_reduction="mean", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers, task_layers2=task_layers2),
+    Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="CrossEntropyLoss",         loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
+    Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="MultiLabelSoftMarginLoss", loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
+    Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="BCEWithLogitsLoss",        loss_reduction="mean", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
     #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="MultiLabelSoftMarginLoss", loss_reduction="mean", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
     #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="SigmoidMultiLabelSoftMarginLoss", loss_reduction="sum", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
 
@@ -162,7 +151,7 @@ def model_init(trial=None):
 
     model = instantiate_model(pretrained_model_name, tasks, freeze_layers_bert)
     # print(model)
-    #summary(model, input_size=(2, max_length), depth=4, dtypes=['torch.IntTensor'], device="cpu")
+    summary(model, input_size=(2, max_length), depth=4, dtypes=['torch.IntTensor'], device="cpu")
 
     #print(dict(model.named_parameters()))
     #print(model.state_dict())
@@ -171,10 +160,8 @@ def model_init(trial=None):
 
 trainer = Trainer(
         args=args,
-        #train_dataset = encoded_dataset["train"],
-        #eval_dataset  = encoded_dataset["validation"],
-        train_dataset = encoded_dataset["validation"],
-        eval_dataset  = encoded_dataset["train"],
+        train_dataset = encoded_dataset["train"],
+        eval_dataset  = encoded_dataset["validation"],
         tokenizer=tokenizer,
         compute_metrics=partial(common.compute_metrics, labels=labels, tasks=tasks, writer=writer),
         model_init=model_init,
