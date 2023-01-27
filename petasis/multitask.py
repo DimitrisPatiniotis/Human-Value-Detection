@@ -105,17 +105,20 @@ task_layers=None
 tid = 0
 tasks = [
     Task(id=(tid:=tid+1), name="v-CE-mean", num_labels=len(labels),   problem_type="multi_label_classification", loss="CrossEntropyLoss",         loss_reduction="mean",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
-    #Task(id=(tid:=tid+1), name="v-MLSM-mean", num_labels=len(labels), problem_type="multi_label_classification", loss="MultiLabelSoftMarginLoss", loss_reduction="mean",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
     Task(id=(tid:=tid+1), name="v-BCE-mean", num_labels=len(labels),  problem_type="multi_label_classification", loss="BCEWithLogitsLoss",        loss_reduction="mean",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
+    #Task(id=(tid:=tid+1), name="v-CE-mean-minorities", num_labels=len(labels),   problem_type="multi_label_classification", loss="CrossEntropyLoss",         loss_reduction="mean",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
     Task(id=(tid:=tid+1), name="v-BCE-mean-minorities", num_labels=len(labels),  problem_type="multi_label_classification", loss="BCEWithLogitsLoss",        loss_reduction="mean",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
+    #Task(id=(tid:=tid+1), name="v-CE-mean-minorities-nw", num_labels=len(labels),   problem_type="multi_label_classification", loss="CrossEntropyLoss",         loss_reduction="mean",  loss_pos_weight=None, loss_class_weight=None, task_layers=task_layers),
+    #Task(id=(tid:=tid+1), name="v-BCE-mean-minorities-nw", num_labels=len(labels),  problem_type="multi_label_classification", loss="BCEWithLogitsLoss",        loss_reduction="mean",  loss_pos_weight=None, loss_class_weight=None, task_layers=task_layers),
 
+    #Task(id=(tid:=tid+1), name="v-MLSM-mean", num_labels=len(labels), problem_type="multi_label_classification", loss="MultiLabelSoftMarginLoss", loss_reduction="mean",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
     #Task(id=(tid:=tid+1), name="v-SF-mean", num_labels=len(labels),   problem_type="multi_label_classification", loss="sigmoid_focal_loss",       loss_reduction="mean")
     #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="SigmoidMultiLabelSoftMarginLoss", loss_reduction="sum", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
     #Task(id=(tid:=tid+1), name="stance", num_labels=2, problem_type="single_label_classification", loss="sigmoid_focal_loss", loss_reduction="sum", labels="labels_stance")
 
 ]
 print("Task ids:", [t.id for t in tasks])
-minority_task_ids = [3]
+minority_task_ids = [3, 4, 5, 6]
 tfboard.filename_suffix = "_".join([t.name for t in tasks])
 
 ## Tokenise dataset...
@@ -130,7 +133,7 @@ if minority_task_ids is not None and len(minority_task_ids):
     minority_classes = []
     minority_class_indexes = []
     for c, f in counter.most_common():
-        if f < 500:
+        if f < 850:
             minority_class_indexes.append(c)
             minority_classes.append(labels[c])
             print(f"Minority Class: {labels[c]} ({f})")
@@ -139,7 +142,8 @@ if minority_task_ids is not None and len(minority_task_ids):
                                                                labels=labels,
                                                                minority_class_indexes=minority_class_indexes,
                                                                task_ids=[t.id for t in tasks],
-                                                               minority_task_ids=minority_task_ids)
+                                                               minority_task_ids=minority_task_ids,
+                                                               random_percent=0.1)
 
 def instantiate_model(pretrained_model_name, tasks, freezeLayers=False):
     model = MultiTaskModel(pretrained_model_name, tasks)
