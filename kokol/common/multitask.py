@@ -12,23 +12,28 @@ import math
 class JoinLayers(nn.Module):
     #def __init__(self, w1=1, w2=1):
     #    super().__init__()
-    #    self.w1 = w1 * torch.nn.Parameter(torch.ones(1))
-    #    self.w2 = w2 * torch.nn.Parameter(torch.ones(1))
+    #    self.w1 = w1 * torch.nn.Parameter(torch.ones(1)).to('cuda')
+    #    self.w2 = w2 * torch.nn.Parameter(torch.ones(1)).to('cuda')
 
     def forward(self, x, y):
-        return x * x + y
+        sig = nn.SiLU()
+        return sig(x) - sig(y)
 
 @dataclass
 class TaskLayer:
     out_features: int = 0
     in_features: int = 0
     layer_type: str = "Linear"
-    activation: str = "ReLU"
+    activation: str = "SiLU"
     dropout_p: float = None
     # For convolutions
     in_channels: int  = 1       # Number of channels in the input image
     out_channels: int = 1       # Number of channels produced by the convolution
     kernel_size: int  = 3       # Size of the convolving kernel
+    kernel_size2: int  = 3       # Size of the convolving kernel
+    kernel_size_pool: int  = 3       # Size of the convolving kernel
+    kernel_size_pool2: int  = 3       # Size of the convolving kernel
+    planes:int = 16
     stride: int       = 1       # Stride of the convolution. Default: 1
     padding: int      = 0       # Padding added to both sides of the input. Default: 0
     padding_mode: str = 'zeros' # 'zeros', 'reflect', 'replicate' or 'circular'. Default: 'zeros'
@@ -53,6 +58,15 @@ class Task:
     task_layers: [TaskLayer] = None
     task_layers2: [TaskLayer] = None
     skip_linear: bool = False
+
+#Hack to allow for easy res-block implementation in current linear architecture
+class ResBlockStart(nn.Module):
+    def _placeholder(self):
+        print("Placeholder")
+
+class ResBlockEnd(nn.Module):
+    def _placeholder(self):
+        print("Placeholder")
 
 class MultiTaskModel(nn.Module):
     def __init__(self, encoder_name_or_path, tasks: List):
@@ -383,6 +397,7 @@ class SiameseClassificationHead(nn.Module):
         self.task = task
         self.layers = torch.nn.ModuleList()
         self.layers2 = torch.nn.ModuleList()
+        self.second_net = False
 
         input_size = hidden_size
         if task.task_layers is not None:
@@ -391,6 +406,10 @@ class SiameseClassificationHead(nn.Module):
                 if tl.dropout_p is not None:
                     self.layers.append(nn.Dropout(tl.dropout_p))
                 match tl.layer_type:
+                    case "ResStart":
+                        self.layers.append(ResBlockEnd)
+                    case "ResEnd":
+                        self.layers.append(ResBlockStart)
                     case "Conv1d":
                         layer = nn.Conv1d(in_channels=tl.in_channels,
                                           out_channels=tl.out_channels,
@@ -407,8 +426,9 @@ class SiameseClassificationHead(nn.Module):
                         self.layers.append(layer)
 
                         layer = nn.BatchNorm1d(tl.out_features)
-                        # self._init_weights(layer)
-                        # tl.out_features = input_size
+                        self.layers.append(layer)
+
+                        layer = nn.SiLU(inplace=True)
                         self.layers.append(layer)
                     case "AvgPool1d":
                         layer = nn.AvgPool1d(tl.kernel_size)
@@ -441,62 +461,68 @@ class SiameseClassificationHead(nn.Module):
                             raise ValueError("Unsupported activation provided.")
                 input_size = tl.out_features
 
-        input_size = hidden_size
         if task.task_layers2 is not None:
-            for tl in task.task_layers2:
-                ## Dropout...
-                if tl.dropout_p is not None:
-                    self.layers2.append(nn.Dropout(tl.dropout_p))
-                match tl.layer_type:
-                    case "Conv1d":
-                        layer = nn.Conv1d(in_channels=tl.in_channels,
-                                          out_channels=tl.out_channels,
-                                          kernel_size=tl.kernel_size,
-                                          stride=tl.stride,
-                                          padding=tl.padding,
-                                          padding_mode=tl.padding_mode,
-                                          dilation=tl.dilation,
-                                          groups=tl.groups,
-                                          bias=tl.bias)
-                        self._init_weights(layer)
-                        tl.out_features = math.floor(
-                            (input_size + 2 * tl.padding - tl.dilation * (tl.kernel_size - 1) - 1) / tl.stride + 1)
-                        self.layers2.append(layer)
-
-                        layer = nn.BatchNorm1d(tl.out_features)
-                        # self._init_weights(layer)
-                        # tl.out_features = input_size
-                        self.layers2.append(layer)
-                    case "AvgPool1d":
-                        layer = nn.AvgPool1d(tl.kernel_size)
-                        # self._init_weights(layer)
-                        tl.out_features = math.floor(input_size / tl.kernel_size)
-                        self.layers2.append(layer)
-                    case "MaxPool1d":
-                        layer = nn.MaxPool1d(tl.kernel_size)
-                        # self._init_weights(layer)
-                        tl.out_features = math.floor(input_size / tl.kernel_size)
-                        self.layers2.append(layer)
-                    case "Activation":
-                        # Do nothing; skip
-                        tl.out_features = input_size
-                    case _:
-                        if tl.out_features > 0:
-                            layer = nn.Linear(input_size, tl.out_features)
+            if (len(task.task_layers2)>0):
+                self.second_net=True
+                input_size = hidden_size
+                for tl in task.task_layers2:
+                    ## Dropout...
+                    if tl.dropout_p is not None:
+                        self.layers2.append(nn.Dropout(tl.dropout_p))
+                    match tl.layer_type:
+                        case "ResStart":
+                            self.layers2.append(ResBlockEnd)
+                        case "ResEnd":
+                            self.layers2.append(ResBlockStart)
+                        case "Conv1d":
+                            layer = nn.Conv1d(in_channels=tl.in_channels,
+                                              out_channels=tl.out_channels,
+                                              kernel_size=tl.kernel_size,
+                                              stride=tl.stride,
+                                              padding=tl.padding,
+                                              padding_mode=tl.padding_mode,
+                                              dilation=tl.dilation,
+                                              groups=tl.groups,
+                                              bias=tl.bias)
                             self._init_weights(layer)
+                            tl.out_features = math.floor(
+                                (input_size + 2 * tl.padding - tl.dilation * (tl.kernel_size - 1) - 1) / tl.stride + 1)
                             self.layers2.append(layer)
-                input_size = tl.out_features
-                if tl.activation is not None:
-                    match tl.activation:
-                        case "SELU":
-                            self.layers2.append(nn.SELU())
-                        case "SiLU":
-                            self.layers2.append(nn.SiLU())
-                        case "ReLU":
-                            self.layers2.append(nn.ReLU())
+
+                            layer = nn.BatchNorm1d(tl.out_features)
+                            # self._init_weights(layer)
+                            # tl.out_features = input_size
+                            self.layers2.append(layer)
+                        case "AvgPool1d":
+                            layer = nn.AvgPool1d(tl.kernel_size)
+                            # self._init_weights(layer)
+                            tl.out_features = math.floor(input_size / tl.kernel_size)
+                            self.layers2.append(layer)
+                        case "MaxPool1d":
+                            layer = nn.MaxPool1d(tl.kernel_size)
+                            # self._init_weights(layer)
+                            tl.out_features = math.floor(input_size / tl.kernel_size)
+                            self.layers2.append(layer)
+                        case "Activation":
+                            # Do nothing; skip
+                            tl.out_features = input_size
                         case _:
-                            raise ValueError("Unsupported activation provided.")
-                input_size = tl.out_features
+                            if tl.out_features > 0:
+                                layer = nn.Linear(input_size, tl.out_features)
+                                self._init_weights(layer)
+                                self.layers2.append(layer)
+                    input_size = tl.out_features
+                    if tl.activation is not None:
+                        match tl.activation:
+                            case "SELU":
+                                self.layers2.append(nn.SELU())
+                            case "SiLU":
+                                self.layers2.append(nn.SiLU())
+                            case "ReLU":
+                                self.layers2.append(nn.ReLU())
+                            case _:
+                                raise ValueError("Unsupported activation provided.")
+                    input_size = tl.out_features
 
         self.dropout = nn.Dropout(dropout_p)
         self.classifier = nn.Linear(input_size, num_labels)
@@ -515,9 +541,14 @@ class SiameseClassificationHead(nn.Module):
     def forward(self, sequence_output1, pooled_output1, sequence_output2, pooled_output2, labels=None, **kwargs):
         output = pooled_output1
         output2 = pooled_output2
+        tmp_input = 0
         for layer in self.layers:
             if isinstance(layer, nn.Conv1d):
                 output = layer(output.unsqueeze(1)).squeeze(1)
+            elif isinstance(layer,ResBlockStart):
+                tmp_input = output
+            elif isinstance(layer,ResBlockEnd):
+                output += tmp_input
             else:
                 output = layer(output)
 
@@ -528,17 +559,17 @@ class SiameseClassificationHead(nn.Module):
                 output2 = layer(output2)
 
         output = self.dropout(output)
-        output2 = self.dropout(output2)
 
-        join=JoinLayers();
+        if self.second_net:
+            output2 = self.dropout(output2)
+            join=JoinLayers();
 
-
-        #silu = torch.nn.SiLU()
-        #lin = nn.Linear(256, 128)
-        #self._init_weights(lin)
-        output = join(output, output2)
-        #output = torch.cat((output, output2), dim=1)
-        #output = lin(output)
+            #silu = torch.nn.SiLU()
+            #lin = nn.Linear(256, 128)
+            #self._init_weights(lin)
+            output = join(output, output2)
+            #output = torch.cat((output, output2), dim=1)
+            #output = lin(output)
 
         logits = self.classifier(output)
         # print("=>", self.task.id, self.task.name)

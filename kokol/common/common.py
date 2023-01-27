@@ -33,7 +33,7 @@ def show_memory(text=''):
 
 
 dataLabelsBasic = ['Argument ID', 'Conclusion', 'Stance', 'Premise', '__index_level_0__', 'P+S', 'C+S', 'P+C', 'P+S+C', 'stance_boolean']
-dataLabelsGroup1 = ['Self-direction: thought','Self-direction: action','Achievement','Power: dominance','Power: resources','Security: personal','Security: societal','Tradition','Conformity: rules','Benevolence: caring','Benevolence: dependability','Universalism: concern','Universalism: nature','Universalism: tolerance','Universalism: objectivity']
+dataLabelsGroup1 = ['Self-direction: thought','Self-direction: action','Achievement','Power: dominance','Power: resources','Security: personal','Security: societal','Tradition','Conformity: rules','Conformity: interpersonal','Humility','Benevolence: caring','Benevolence: dependability','Universalism: concern','Universalism: nature','Universalism: tolerance','Universalism: objectivity']
 
 dataLabelsGroup2 = ['Self-direction: thought','Self-direction: action','Stimulation','Hedonism','Achievement','Power: dominance','Power: resources','Face','Security: personal','Security: societal','Tradition','Conformity: rules','Conformity: interpersonal','Humility','Benevolence: caring','Benevolence: dependability','Universalism: concern','Universalism: nature','Universalism: tolerance','Universalism: objectivity']
 dataLabelsGroup3 = ['Self-direction: thought','Self-direction: action','Stimulation','Hedonism','Achievement','Power: dominance','Power: resources','Face','Security: personal','Security: societal','Tradition','Conformity: rules','Conformity: interpersonal','Humility','Benevolence: caring','Benevolence: dependability','Universalism: concern','Universalism: nature','Universalism: tolerance','Universalism: objectivity']

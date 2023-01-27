@@ -1,3 +1,4 @@
+import math
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
 from common import common
 from common.multitask import Task, TaskLayer, MultiTaskModel
@@ -20,10 +21,10 @@ pretrained_model_name = "bert-base-uncased"
 # pretrained_model_name = "facebook/bart-base"
 learning_rate         = 2e-5
 # learning_rate         = 3e-3
-batch_size            = 8
+batch_size            = 16
 metric_name           = "loss"
-num_train_epochs      = 128
-use_class_weights     = False
+num_train_epochs      = 1280
+use_class_weights     = True
 use_pos_weights       = True
 freeze_layers_bert    = False
 max_length            = 200
@@ -44,10 +45,8 @@ common.setSeeds(seed)
 datadir = '../Data'
 df_train, df_validation, df_test = common.getData(datadir)
 
-dataLabelsGroup2 = ['Self-direction: thought','Self-direction: action','Hedonism','Achievement','Power: dominance','Power: resources','Security: personal','Security: societal','Tradition','Conformity: rules','Benevolence: caring','Benevolence: dependability','Universalism: concern','Universalism: nature','Universalism: tolerance','Universalism: objectivity']
-
-df_train_new=df_train.loc[(df_train['Stimulation']==1) | (df_train['Hedonism']==1) | (df_train['Face']==1) | (df_train['Conformity: interpersonal']==1) | (df_train['Humility']==1)]
-df_train=df_train.sample(frac=0.1).merge(df_train_new)
+df_train_new=df_train.loc[(df_train['Stimulation']==1) | (df_train['Hedonism']==1) | (df_train['Face']==1)]
+df_train=df_train.sample(n=math.floor(df_train_new.shape[0]/3)).merge(df_train_new)
 
 dataset = common.getDatasets(df_train, df_validation, df_test)
 
@@ -103,23 +102,35 @@ args = TrainingArguments(
 )
 
 task_layers = [
-    TaskLayer(layer_type="Conv1d", in_channels=1, out_channels=1, kernel_size=4),
-    TaskLayer(layer_type="Activation", activation="SiLU"),
-    TaskLayer(layer_type="MaxPool1d", kernel_size=2),
+    TaskLayer(layer_type="Conv1d", in_channels=1, out_channels=1, kernel_size=7, padding=3),
+    TaskLayer(layer_type="MaxPool1d", kernel_size=3),
+    TaskLayer(out_features=128, activation="SiLU", dropout_p=0.25),
+
+    TaskLayer(layer_type="ResStart")
+    TaskLayer(layer_type="Conv1d", in_channels=1, out_channels=1, kernel_size=3, padding=3, stride=2),
+    TaskLayer(layer_type="Conv1d", in_channels=1, out_channels=1, kernel_size=3, padding=1, stride=1),
+    TaskLayer(layer_type="ResEnd")
     TaskLayer(out_features=128, activation="SiLU", dropout_p=0.25),
 ]
 task_layers2 = [
-    TaskLayer(layer_type="Conv1d", in_channels=1, out_channels=1, kernel_size=4),
-    TaskLayer(layer_type="Activation", activation="SiLU"),
+    TaskLayer(layer_type="Conv1d", in_channels=1, out_channels=1, kernel_size=5, padding=2),
     TaskLayer(layer_type="AvgPool1d", kernel_size=2),
     TaskLayer(out_features=128, activation="SiLU", dropout_p=0.25),
 ]
 
 tid = 0
 tasks = [
-    Task(id=(tid:=tid+1), name="v-CE-sum", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="CrossEntropyLoss",         loss_reduction="mean",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers, task_layers2=task_layers2),
+    #Task(id=(tid:=tid+1), name="v-CE-sum", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="CrossEntropyLoss",         loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers, task_layers2=task_layers2),
+    #Task(id=(tid:=tid+1), name="v-BCE-sum", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="BCEWithLogitsLoss",        loss_reduction="sum", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers, task_layers2=task_layers2),
+
+    Task(id=(tid := tid + 1), name="v-CE-sum", num_labels=len(labels), problem_type="multi_label_classification",
+         type="seq_classification_siamese", loss="CrossEntropyLoss", loss_reduction="sum",
+         loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
+    #Task(id=(tid := tid + 1), name="v-BCE-sum", num_labels=len(labels), problem_type="multi_label_classification",
+    #     type="seq_classification_siamese", loss="BCEWithLogitsLoss", loss_reduction="sum",
+    #     loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
+
     #Task(id=(tid:=tid+1), name="v-MLSM-sum", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="MultiLabelSoftMarginLoss", loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers, task_layers2=task_layers2),
-    Task(id=(tid:=tid+1), name="v-BCE-sum", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="BCEWithLogitsLoss",        loss_reduction="mean", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers, task_layers2=task_layers2),
     #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="MultiLabelSoftMarginLoss", loss_reduction="mean", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
     #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="SigmoidMultiLabelSoftMarginLoss", loss_reduction="sum", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
 
@@ -179,10 +190,10 @@ def model_init(trial=None):
 
 trainer = Trainer(
         args=args,
-        #train_dataset = encoded_dataset["train"],
-        #eval_dataset  = encoded_dataset["validation"],
-        train_dataset = encoded_dataset["validation"],
-        eval_dataset  = encoded_dataset["train"],
+        train_dataset = encoded_dataset["train"],
+        eval_dataset  = encoded_dataset["validation"],
+        #train_dataset = encoded_dataset["validation"],
+        #eval_dataset  = encoded_dataset["train"],
         tokenizer=tokenizer,
         compute_metrics=partial(common.compute_metrics, labels=labels, tasks=tasks),
         model_init=model_init,
