@@ -204,7 +204,7 @@ def remove_noisy_examples(df, labels, classes=["Universalism: concern", "Securit
     return df
 
 
-def split_imballance_dataset_map(dataset, labels=[], minority_class_indexes=[], task_ids=[], minority_task_ids=[]):
+def split_imballance_dataset_map(dataset, labels=[], minority_class_indexes=[], task_ids=[], minority_task_ids=[], random_percent=0.1):
     # Generate the vector of minorities...
     indices = np.where(dataset['labels'][:, minority_class_indexes].sum(dim=-1) > 0)
     # Generate a matrix (N, number_of_tasks)
@@ -213,13 +213,17 @@ def split_imballance_dataset_map(dataset, labels=[], minority_class_indexes=[], 
         if id in minority_task_ids:
             tasks_ids_array[:, i] = -1
             tasks_ids_array[indices, i] = int(i+1)
+            # Add some examples (randomly selected)
+            size = len(dataset['labels'])
+            if int(size * random_percent) > 0:
+                tasks_ids_array[random.sample(range(0, size), int(size*random_percent)), i] = int(i+1)
         else:
             tasks_ids_array[:, i] = int(i+1)
     dataset['task_ids'] = tasks_ids_array
     return dataset
 
 
-def split_imballance_dataset(dataset: Dataset, labels=[], minority_class_indexes=[], task_ids=[], minority_task_ids=[]):
+def split_imballance_dataset(dataset: Dataset, labels=[], minority_class_indexes=[], task_ids=[], minority_task_ids=[], random_percent=0.1):
     return dataset.map(partial(split_imballance_dataset_map, labels=labels, minority_class_indexes=minority_class_indexes, task_ids=task_ids, minority_task_ids=minority_task_ids),
         batched=True)
 
