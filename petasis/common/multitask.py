@@ -11,8 +11,21 @@ from torchinfo import summary
 @dataclass
 class TaskLayer:
     out_features: int = 0
+    in_features: int = 0
+    layer_type: str = "Linear"
     activation: str = "ReLU"
     dropout_p: float = None
+    # For convolutions
+    in_channels: int  = 1       # Number of channels in the input image
+    out_channels: int = 1       # Number of channels produced by the convolution
+    kernel_size: int  = 3       # Size of the convolving kernel
+    stride: int       = 1       # Stride of the convolution. Default: 1
+    padding: int      = 0       # Padding added to both sides of the input. Default: 0
+    padding_mode: str = 'zeros' # 'zeros', 'reflect', 'replicate' or 'circular'. Default: 'zeros'
+    dilation: int     = 1       # Spacing between kernel elements. Default: 1
+    groups: int       = 1       # Number of blocked connections from input channels to output channels. Default: 1
+    bias: bool        = True    # If True, adds a learnable bias to the output. Default: True
+
 
 @dataclass
 class Task:
@@ -163,15 +176,54 @@ class SequenceClassificationHead(nn.Module):
                 ## Dropout...
                 if tl.dropout_p is not None:
                     self.layers.append(nn.Dropout(tl.dropout_p))
-                if tl.out_features > 0:
-                    layer = nn.Linear(input_size, tl.out_features)
-                    self._init_weights(layer)
-                    self.layers.append(layer)
-                match tl.activation:
-                    case "SELU":
-                        self.layers.append(nn.SELU())
+                match tl.layer_type:
+                    case "Conv1d":
+                        layer = nn.Conv1d(in_channels=tl.in_channels,
+                                                     out_channels=tl.out_channels,
+                                                     kernel_size=tl.kernel_size,
+                                                     stride=tl.stride,
+                                                     padding=tl.padding,
+                                                     padding_mode=tl.padding_mode,
+                                                     dilation=tl.dilation,
+                                                     groups=tl.groups,
+                                                     bias=tl.bias)
+                        self._init_weights(layer)
+                        tl.out_features = math.floor((input_size + 2 * tl.padding - tl.dilation * (tl.kernel_size - 1) - 1) / tl.stride + 1)
+                        self.layers.append(layer)
+
+                        layer = nn.BatchNorm1d(tl.out_features)
+                        # self._init_weights(layer)
+                        #tl.out_features = input_size
+                        self.layers.append(layer)
+                    case "AvgPool1d":
+                        layer = nn.AvgPool1d(tl.kernel_size)
+                        #self._init_weights(layer)
+                        tl.out_features = math.floor(input_size / tl.kernel_size)
+                        self.layers.append(layer)
+                    case "MaxPool1d":
+                        layer = nn.MaxPool1d(tl.kernel_size)
+                        # self._init_weights(layer)
+                        tl.out_features = math.floor(input_size / tl.kernel_size)
+                        self.layers.append(layer)
+                    case "Activation":
+                        #Do nothing; skip
+                        tl.out_features = input_size
                     case _:
-                        self.layers.append(nn.ReLU())
+                        if tl.out_features > 0:
+                            layer = nn.Linear(input_size, tl.out_features)
+                            self._init_weights(layer)
+                            self.layers.append(layer)
+                input_size = tl.out_features
+                if tl.activation is not None:
+                    match tl.activation:
+                        case "SELU":
+                            self.layers.append(nn.SELU())
+                        case "SiLU":
+                            self.layers.append(nn.SiLU())
+                        case "ReLU":
+                            self.layers.append(nn.ReLU())
+                        case _:
+                            raise ValueError("Unsupported activation provided.")
                 input_size = tl.out_features
         self.dropout = nn.Dropout(dropout_p)
         self.classifier = nn.Linear(input_size, num_labels)
@@ -182,7 +234,7 @@ class SequenceClassificationHead(nn.Module):
         if layer is None:
             layer = self.classifier
         #layer.weight.data.normal_(mean=0.0, std=0.02)
-        nn.init.xavier_normal_(layer.weight.data)
+        nn.init.xavier_normal_(layer.weight.data, gain=1.43)
         if layer.bias is not None:
             # layer.bias.data.zero_()
             nn.init.uniform_(layer.bias.data, -1.43, 1.43)
@@ -190,7 +242,10 @@ class SequenceClassificationHead(nn.Module):
     def forward(self, sequence_output, pooled_output, labels=None, **kwargs):
         output = pooled_output
         for layer in self.layers:
-            output = layer(output)
+            if isinstance(layer, nn.Conv1d):
+                output = layer(output.unsqueeze(1)).squeeze(1)
+            else:
+                output = layer(output)
         output = self.dropout(output)
         logits = self.classifier(output)
         # print("=>", self.task.id, self.task.name)
@@ -244,10 +299,16 @@ class SequenceClassificationHead(nn.Module):
                             case "SigmoidMultiLabelSoftMarginLoss":
                                 sigmoid = nn.Sigmoid()
                                 logits = sigmoid(logits)
-                                loss_fct = nn.MultiLabelSoftMarginLoss(weight=self.task.loss_class_weight.to(logits.device), reduction=reduction)
+                                if self.task.loss_class_weight is None:
+                                    loss_fct = nn.MultiLabelSoftMarginLoss(reduction=reduction)
+                                else:
+                                    loss_fct = nn.MultiLabelSoftMarginLoss(weight=self.task.loss_class_weight.to(logits.device), reduction=reduction)
                                 loss = loss_fct(logits, labels)
                             case "MultiLabelSoftMarginLoss":
-                                loss_fct = nn.MultiLabelSoftMarginLoss(weight=self.task.loss_class_weight.to(logits.device), reduction=reduction)
+                                if self.task.loss_class_weight is None:
+                                    loss_fct = nn.MultiLabelSoftMarginLoss(reduction=reduction)
+                                else:
+                                    loss_fct = nn.MultiLabelSoftMarginLoss(weight=self.task.loss_class_weight.to(logits.device), reduction=reduction)
                                 loss = loss_fct(logits, labels)
                             case "CrossEntropyLoss":
                                 ## https://discuss.pytorch.org/t/multilabel-classification-with-class-imbalance/57345
@@ -262,7 +323,10 @@ class SequenceClassificationHead(nn.Module):
                                     loss_fct = nn.CrossEntropyLoss(reduction=self.task.loss_reduction, weight=self.task.loss_class_weight.to(logits.device))
                                 loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1, self.num_labels))
                             case _:
-                                loss_fct = nn.BCEWithLogitsLoss(reduction=reduction, pos_weight=self.task.loss_pos_weight.to(logits.device))
+                                if self.task.loss_pos_weight is None:
+                                    loss_fct = nn.BCEWithLogitsLoss(reduction=reduction)
+                                else:
+                                    loss_fct = nn.BCEWithLogitsLoss(reduction=reduction, pos_weight=self.task.loss_pos_weight.to(logits.device))
                                 loss = loss_fct(logits, labels)
                         if reduction == "none":
                             match self.task.loss_reduction:
@@ -290,10 +354,15 @@ class TokenClassificationHead(nn.Module):
 
         self._init_weights()
 
-    def _init_weights(self):
-        self.classifier.weight.data.normal_(mean=0.0, std=0.02)
-        if self.classifier.bias is not None:
-            self.classifier.bias.data.zero_()
+    def _init_weights(self, layer=None):
+        if layer is None:
+            layer = self.classifier
+        layer.weight.data.normal_(mean=0.0, std=0.02)
+        #nn.init.xavier_normal_(layer.weight.data, gain=1.43)
+        if layer.bias is not None:
+            # layer.bias.data.zero_()
+            nn.init.uniform_(layer.bias.data, -1.43, 1.43)
+
 
     def forward(
         self, sequence_output, pooled_output, labels=None, attention_mask=None, **kwargs

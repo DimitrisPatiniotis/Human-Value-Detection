@@ -9,12 +9,34 @@ import numpy as np
 import pandas as pd
 from torchinfo import summary
 import optuna
-from torch.utils.tensorboard import SummaryWriter
 from transformers.integrations import TensorBoardCallback
 
+############################################################
+## Parameters
+############################################################
 seed = 2022
-common.setSeeds(seed)
+pretrained_model_name = "bert-base-uncased"
+# pretrained_model_name = "bert-large-uncased"
+# pretrained_model_name = "facebook/bart-base"
+learning_rate         = 2e-5
+# learning_rate         = 3e-3
+batch_size            = 8
+metric_name           = "loss"
+num_train_epochs      = 128
+use_class_weights     = False
+use_pos_weights       = True
+freeze_layers_bert    = False
+max_length            = 200
+hperparam_search      = False
+save_checkpoints      = False
+output_dir            = f"runs/mt-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
+best_output_dir       = f"runs/mt-best-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
+tensorboard_dir       = f"runs/mt-tb-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
+hperparam_search_name = f"runs/mt-std-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
+Sentence1             = 'P+S+C'
+Sentence2             = None
 
+common.setSeeds(seed)
 
 # from transformers import AutoModelForSequenceClassification
 
@@ -33,41 +55,24 @@ dataset = common.getDatasets(df_train, df_validation, df_test)
 labels = [label for label in dataset['train'].features.keys() if label not in common.dataLabels]
 id2label = {idx:label for idx, label in enumerate(labels)}
 label2id = {label:idx for idx, label in enumerate(labels)}
-# print("Labels:", labels)
+# print("Labels:", len(labels), labels)
 tfboard.display_labels=labels
+
+# Maria's idea...
+#df_train = common.remove_noisy_examples(df_train, labels=labels, classes=None)
+#dataset = common.getDatasets(df_train, df_validation, df_test)
+
 # Get class weights...
 loss_pos_weights   = None
 loss_class_weights = None
 
-############################################################
-## Parameters
-############################################################
-pretrained_model_name = "bert-base-uncased"
-# pretrained_model_name = "bert-large-uncased"
-# pretrained_model_name = "facebook/bart-base"
-learning_rate         = 2e-5
-# learning_rate         = 3e-3
-batch_size            = 1024
-metric_name           = "loss"
-num_train_epochs      = 128
-use_class_weights     = False
-use_pos_weights       = True
-freeze_layers_bert    = False
-max_length            = 200
-hperparam_search      = False
-save_checkpoints      = False
-output_dir            = f"runs/mt-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
-best_output_dir       = f"runs/mt-best-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
-tensorboard_dir       = f"runs/mt-tb-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
-hperparam_search_name = f"runs/mt-std-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
-
-writer = SummaryWriter(tensorboard_dir)
-
 if not freeze_layers_bert:
     if "large" in pretrained_model_name:
-        batch_size = 8
+        if batch_size > 32:
+            batch_size = 32
     else:
-        batch_size = 8
+        if batch_size > 64:
+            batch_size = 64
 
 if use_class_weights:
     loss_class_weights = common.compute_class_weights2(pd.concat([df_train, df_validation], ignore_index=True, sort=False), labels)
@@ -112,9 +117,9 @@ task_layers2 = [
 
 tid = 0
 tasks = [
-    Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="CrossEntropyLoss",         loss_reduction="mean",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers, task_layers2=task_layers2),
-    #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="MultiLabelSoftMarginLoss", loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers, task_layers2=task_layers2),
-    Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="BCEWithLogitsLoss",        loss_reduction="mean", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers, task_layers2=task_layers2),
+    Task(id=(tid:=tid+1), name="v-CE-sum", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="CrossEntropyLoss",         loss_reduction="mean",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers, task_layers2=task_layers2),
+    #Task(id=(tid:=tid+1), name="v-MLSM-sum", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="MultiLabelSoftMarginLoss", loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers, task_layers2=task_layers2),
+    Task(id=(tid:=tid+1), name="v-BCE-sum", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="BCEWithLogitsLoss",        loss_reduction="mean", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers, task_layers2=task_layers2),
     #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="MultiLabelSoftMarginLoss", loss_reduction="mean", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
     #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="SigmoidMultiLabelSoftMarginLoss", loss_reduction="sum", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
 
@@ -122,10 +127,13 @@ tasks = [
 
 ]
 print("Task ids:", [t.id for t in tasks])
+tfboard.filename_suffix = "_".join([t.name for t in tasks])
 
 ## Tokenise dataset...
 tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
-encoded_dataset = common.encodeDataset(dataset, labels, tokenizer, max_length, sent1="Premise", sent2="Conclusion", task_ids=[t.id for t in tasks])
+#encoded_dataset = common.encodeDataset(dataset, labels, tokenizer, max_length, sent1="Premise", sent2="Conclusion", task_ids=[t.id for t in tasks])
+encoded_dataset = common.encodeDataset(dataset, labels, tokenizer, max_length, sent1=Sentence1, sent2=Sentence2, task_ids=[t.id for t in tasks])
+
 
 def instantiate_model(pretrained_model_name, tasks, freezeLayers=False):
     model = MultiTaskModel(pretrained_model_name, tasks)
@@ -176,7 +184,7 @@ trainer = Trainer(
         train_dataset = encoded_dataset["validation"],
         eval_dataset  = encoded_dataset["train"],
         tokenizer=tokenizer,
-        compute_metrics=partial(common.compute_metrics, labels=labels, tasks=tasks, writer=writer),
+        compute_metrics=partial(common.compute_metrics, labels=labels, tasks=tasks),
         model_init=model_init,
         callbacks=[tfboard.MTTensorBoardCallback],
 )

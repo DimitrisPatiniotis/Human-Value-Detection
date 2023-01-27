@@ -268,8 +268,8 @@ class SequenceClassificationHead(nn.Module):
         #layer.weight.data.normal_(mean=0.0, std=0.02)
         nn.init.xavier_normal_(layer.weight.data, gain=1.43)
         if layer.bias is not None:
-            nn.init.uniform_(layer.bias.data, -1.43,1.43)
-            #layer.bias.data.zero_()
+            # layer.bias.data.zero_()
+            nn.init.uniform_(layer.bias.data, -1.43, 1.43)
 
     def forward(self, sequence_output, pooled_output, sequence_output2, pooled_output2, labels=None, **kwargs):
         output = pooled_output
@@ -327,14 +327,20 @@ class SequenceClassificationHead(nn.Module):
                         match self.task.loss:
                             case "sigmoid_focal_loss":
                                 loss_fct = sigmoid_focal_loss
-                                loss = loss_fct(logits, labels, reduction=self.task.loss_reduction)
+                                loss = loss_fct(logits, labels, reduction=reduction)
                             case "SigmoidMultiLabelSoftMarginLoss":
                                 sigmoid = nn.Sigmoid()
                                 logits = sigmoid(logits)
-                                loss_fct = nn.MultiLabelSoftMarginLoss(weight=self.task.loss_class_weight.to(logits.device), reduction=reduction)
+                                if self.task.loss_class_weight is None:
+                                    loss_fct = nn.MultiLabelSoftMarginLoss(reduction=reduction)
+                                else:
+                                    loss_fct = nn.MultiLabelSoftMarginLoss(weight=self.task.loss_class_weight.to(logits.device), reduction=reduction)
                                 loss = loss_fct(logits, labels)
                             case "MultiLabelSoftMarginLoss":
-                                loss_fct = nn.MultiLabelSoftMarginLoss(weight=self.task.loss_class_weight.to(logits.device), reduction=reduction)
+                                if self.task.loss_class_weight is None:
+                                    loss_fct = nn.MultiLabelSoftMarginLoss(reduction=reduction)
+                                else:
+                                    loss_fct = nn.MultiLabelSoftMarginLoss(weight=self.task.loss_class_weight.to(logits.device), reduction=reduction)
                                 loss = loss_fct(logits, labels)
                             case "CrossEntropyLoss":
                                 ## https://discuss.pytorch.org/t/multilabel-classification-with-class-imbalance/57345
@@ -349,7 +355,10 @@ class SequenceClassificationHead(nn.Module):
                                     loss_fct = nn.CrossEntropyLoss(reduction=self.task.loss_reduction, weight=self.task.loss_class_weight.to(logits.device))
                                 loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1, self.num_labels))
                             case _:
-                                loss_fct = nn.BCEWithLogitsLoss(reduction=reduction, pos_weight=self.task.loss_pos_weight.to(logits.device))
+                                if self.task.loss_pos_weight is None:
+                                    loss_fct = nn.BCEWithLogitsLoss(reduction=reduction)
+                                else:
+                                    loss_fct = nn.BCEWithLogitsLoss(reduction=reduction, pos_weight=self.task.loss_pos_weight.to(logits.device))
                                 loss = loss_fct(logits, labels)
                         if reduction == "none":
                             match self.task.loss_reduction:
@@ -629,10 +638,14 @@ class TokenClassificationHead(nn.Module):
 
         self._init_weights()
 
-    def _init_weights(self):
-        self.classifier.weight.data.normal_(mean=0.0, std=0.02)
-        if self.classifier.bias is not None:
-            self.classifier.bias.data.zero_()
+    def _init_weights(self, layer=None):
+        if layer is None:
+            layer = self.classifier
+        layer.weight.data.normal_(mean=0.0, std=0.02)
+        #nn.init.xavier_normal_(layer.weight.data)
+        if layer.bias is not None:
+            # layer.bias.data.zero_()
+            nn.init.uniform_(layer.bias.data, -1.43, 1.43)
 
     def forward(
         self, sequence_output, pooled_output, labels=None, attention_mask=None, **kwargs

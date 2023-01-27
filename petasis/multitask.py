@@ -23,12 +23,12 @@ learning_rate         = 2e-5
 batch_size            = 8
 metric_name           = "f1"
 num_train_epochs      = 32
-use_class_weights     = True
+use_class_weights     = False
 use_pos_weights       = True
 freeze_layers_bert    = False
 max_length            = 200
 hperparam_search      = False
-save_checkpoints      = True
+save_checkpoints      = False
 output_dir            = f"runs/mt-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
 best_output_dir       = f"runs/mt-best-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
 tensorboard_dir       = f"runs/mt-tb-{pretrained_model_name}-{num_train_epochs}-{batch_size}-{metric_name}"
@@ -99,12 +99,13 @@ args = TrainingArguments(
 task_layers = [
     TaskLayer(out_features=384, dropout_p=0.1, activation="ReLU"),
 ]
+task_layers=None
 
 tid = 0
 tasks = [
-    #Task(id=(tid:=tid+1), name="v-CE-sum", num_labels=len(labels),   problem_type="multi_label_classification", loss="CrossEntropyLoss",         loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
-    #Task(id=(tid:=tid+1), name="v-MLSM-sum", num_labels=len(labels), problem_type="multi_label_classification", loss="MultiLabelSoftMarginLoss", loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
-    Task(id=(tid:=tid+1), name="v-BCE-sum", num_labels=len(labels),  problem_type="multi_label_classification", loss="BCEWithLogitsLoss",        loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
+    Task(id=(tid:=tid+1), name="v-CE-sum", num_labels=len(labels),   problem_type="multi_label_classification", loss="CrossEntropyLoss",         loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
+    #Task(id=(tid:=tid+1), name="v-MLSM-sum", num_labels=len(labels), problem_type="multi_label_classification", loss="MultiLabelSoftMarginLoss", loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
+    Task(id=(tid:=tid+1), name="v-BCE-sum", num_labels=len(labels),  problem_type="multi_label_classification", loss="BCEWithLogitsLoss",        loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
     #Task(id=(tid:=tid+1), name="v-SF-sum", num_labels=len(labels),   problem_type="multi_label_classification", loss="sigmoid_focal_loss",       loss_reduction="sum")
     #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="SigmoidMultiLabelSoftMarginLoss", loss_reduction="sum", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
     #Task(id=(tid:=tid+1), name="stance", num_labels=2, problem_type="single_label_classification", loss="sigmoid_focal_loss", loss_reduction="sum", labels="labels_stance")
@@ -152,7 +153,7 @@ def model_init(trial=None):
 
 
     model = instantiate_model(pretrained_model_name, tasks, freeze_layers_bert)
-    #print(model)
+    # print(model)
     summary(model, input_size=(2, max_length), depth=4, dtypes=['torch.IntTensor'], device="cpu")
 
     #print(dict(model.named_parameters()))

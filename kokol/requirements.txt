@@ -8,3 +8,7 @@ torchinfo
 optuna
 optuna-dashboard
 tensorboard
+tensorboardX
+matplotlib
+matplotlib-venn
+pretty-confusion-matrix
