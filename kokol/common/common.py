@@ -151,7 +151,7 @@ def preprocess_data(examples, labels, tokenizer, max_length=200, task_ids=[0], s
         # Is it a multitask run?
         if len(task_ids) > 0:
             encoding["labels_stance"] = examples["stance_boolean"]  # Interpreted as class indices...
-        # encoding["task_ids"] = [task_ids[0]] * len(encoding["labels"])
+        encoding["task_ids"] = [task_ids] * len(encoding["labels"])
 
         return encoding
 
@@ -240,6 +240,14 @@ def remove_noisy_examples(df, labels, classes=["Universalism: concern", "Securit
             break
         print(c, "removed:", removed, "=>", df[c].sum())
     return df
+
+
+def split_imballance_dataset(df, labels):
+    counter = Counter()
+    for c in labels:
+        counter[c] += df[c].sum()
+    for c, f in counter.most_common():
+        pass
 
 
 save_eval_result_df = None
@@ -362,6 +370,7 @@ def multi_label_metrics(predictions, true_labels, labels=[], tasks=None, writer=
     return metrics
 
 def compute_metrics(p: EvalPrediction, labels=[], tasks=None, writer=None):
+    #print("compute_metrics:", p.predictions, p.label_ids)
     #print("predictions:", p.predictions)
     #print("labels:", p.label_ids)
     #preds = p.predictions[0] if isinstance(p.predictions,

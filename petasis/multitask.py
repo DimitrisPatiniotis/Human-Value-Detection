@@ -53,7 +53,7 @@ label2id = {label:idx for idx, label in enumerate(labels)}
 tfboard.display_labels=labels
 
 # Maria's idea...
-df_train = common.remove_noisy_examples(df_train, labels=labels, classes=None)
+#df_train = common.remove_noisy_examples(df_train, labels=labels, classes=None)
 dataset = common.getDatasets(df_train, df_validation, df_test)
 
 # Get class weights...
@@ -103,10 +103,10 @@ task_layers=None
 
 tid = 0
 tasks = [
-    Task(id=(tid:=tid+1), name="v-CE-sum", num_labels=len(labels),   problem_type="multi_label_classification", loss="CrossEntropyLoss",         loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
-    #Task(id=(tid:=tid+1), name="v-MLSM-sum", num_labels=len(labels), problem_type="multi_label_classification", loss="MultiLabelSoftMarginLoss", loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
-    Task(id=(tid:=tid+1), name="v-BCE-sum", num_labels=len(labels),  problem_type="multi_label_classification", loss="BCEWithLogitsLoss",        loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
-    #Task(id=(tid:=tid+1), name="v-SF-sum", num_labels=len(labels),   problem_type="multi_label_classification", loss="sigmoid_focal_loss",       loss_reduction="sum")
+    Task(id=(tid:=tid+1), name="v-CE-mean", num_labels=len(labels),   problem_type="multi_label_classification", loss="CrossEntropyLoss",         loss_reduction="mean",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
+    #Task(id=(tid:=tid+1), name="v-MLSM-mean", num_labels=len(labels), problem_type="multi_label_classification", loss="MultiLabelSoftMarginLoss", loss_reduction="mean",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
+    Task(id=(tid:=tid+1), name="v-BCE-mean", num_labels=len(labels),  problem_type="multi_label_classification", loss="BCEWithLogitsLoss",        loss_reduction="mean",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
+    #Task(id=(tid:=tid+1), name="v-SF-mean", num_labels=len(labels),   problem_type="multi_label_classification", loss="sigmoid_focal_loss",       loss_reduction="mean")
     #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="SigmoidMultiLabelSoftMarginLoss", loss_reduction="sum", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
     #Task(id=(tid:=tid+1), name="stance", num_labels=2, problem_type="single_label_classification", loss="sigmoid_focal_loss", loss_reduction="sum", labels="labels_stance")
 
@@ -154,7 +154,7 @@ def model_init(trial=None):
 
     model = instantiate_model(pretrained_model_name, tasks, freeze_layers_bert)
     # print(model)
-    summary(model, input_size=(2, max_length), depth=4, dtypes=['torch.IntTensor'], device="cpu")
+    #summary(model, input_size=(2, max_length), depth=4, dtypes=['torch.IntTensor'], device="cpu")
 
     #print(dict(model.named_parameters()))
     #print(model.state_dict())

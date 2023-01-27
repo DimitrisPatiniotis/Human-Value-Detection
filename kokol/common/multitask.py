@@ -120,7 +120,7 @@ class MultiTaskModel(nn.Module):
         **kwargs,
     ):
         # print("input_ids:", input_ids)
-        # print(task_ids)
+        # print(task_ids, task_ids.shape)
         # print(labels_stance, labels_stance.shape)
 
         if token_type_ids is not None:
@@ -157,10 +157,10 @@ class MultiTaskModel(nn.Module):
         sequence_output, pooled_output = outputs[:2]
         sequence_output2, pooled_output2 = outputs2[:2]
 
-        if task_ids is not None:
-            unique_task_ids_list = torch.unique(task_ids).tolist()
-        else:
-            unique_task_ids_list = [int(i) for i in self.output_heads.keys()]
+        #if task_ids is not None:
+        #    unique_task_ids_list = torch.unique(task_ids).tolist()
+        #else:
+        unique_task_ids_list = [int(i) for i in self.output_heads.keys()]
 
         loss_list = []
         logits = None
@@ -173,18 +173,27 @@ class MultiTaskModel(nn.Module):
                 case _:
                     task_labels = labels
 
-            # task_id_filter = task_ids == unique_task_id
-            task_logits, task_loss = self.output_heads[str(unique_task_id)].forward(
-                # sequence_output[task_id_filter],
-                # pooled_output[task_id_filter],
-                sequence_output,
-                pooled_output,
-                sequence_output2,
-                pooled_output2,
-                # labels=None if labels is None else labels[task_id_filter],
-                labels=None if task_labels is None else task_labels,
-                # attention_mask=attention_mask[task_id_filter],
-                attention_mask=attention_mask
+            if task_ids is None:
+                task_logits, task_loss = self.output_heads[str(unique_task_id)].forward(
+                    sequence_output,
+                    pooled_output,
+                    sequence_output2,
+                    pooled_output2,
+                    labels=task_labels,
+                    attention_mask=attention_mask
+                )
+            else:
+                # Define a filter, to filter rows...
+                # task_id_filter = unique_task_id == task_ids
+                # Check if the current task in the the list of allowed tasks for each row...
+                task_id_filter = torch.isin(task_ids, unique_task_id).sum(dim=-1) > 0
+                task_logits, task_loss = self.output_heads[str(unique_task_id)].forward(
+                    sequence_output[task_id_filter],
+                    pooled_output[task_id_filter],
+                    sequence_output2[task_id_filter], # TODO: CHECK!
+                    pooled_output2[task_id_filter],   # TODO: CHECK!
+                    labels = None if task_labels is None else task_labels[task_id_filter],
+                    attention_mask=attention_mask[task_id_filter],
             )
 
             if task_logits is not None:
@@ -673,10 +682,11 @@ class TokenClassificationHead(nn.Module):
         if layer is None:
             layer = self.classifier
         layer.weight.data.normal_(mean=0.0, std=0.02)
-        #nn.init.xavier_normal_(layer.weight.data)
+        #nn.init.xavier_normal_(layer.weight.data, gain=1.43)
         if layer.bias is not None:
             # layer.bias.data.zero_()
             nn.init.uniform_(layer.bias.data, -1.43, 1.43)
+
 
     def forward(
         self, sequence_output, pooled_output, labels=None, attention_mask=None, **kwargs
