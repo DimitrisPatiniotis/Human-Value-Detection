@@ -47,39 +47,61 @@ dataLabels = []
 dataLabels.extend(dataLabelsBasic)
 #dataLabels.extend(dataLabelsGroup1)
 
-def getData(datadir):
+def getData(datadir, no_join=False):
     df_args = pd.read_csv(datadir + '/arguments-training.tsv', sep = '\t')
-    df_args['P+S+C'] = df_args[['Premise', 'Stance', 'Conclusion']].apply(lambda x: ' '.join(x), axis=1)
-    df_args['P+C'] = df_args[['Premise',    'Conclusion']].apply(lambda x: ' '.join(x), axis=1)
-    df_args['P+S'] = df_args[['Premise',    'Stance']].apply(lambda x: ' '.join(x), axis=1)
-    df_args['C+S'] = df_args[['Conclusion', 'Stance']].apply(lambda x: ' '.join(x), axis=1)
-    df_args['stance_boolean'] = df_args['Stance'].map({"against": 0, "in favor of": 1, "in favour of": 1})
-    if df_args['stance_boolean'].isnull().values.any():
-        raise Exception(f"NAN problem in data 1")
+    if (no_join):
+        df_args['P+S+C'] = df_args['Premise']
+        df_args['P+C'] = df_args['Premise']
+        df_args['P+S'] =  df_args['Premise']
+        df_args['C+S'] = df_args['Premise']
+        df_args['stance_boolean'] = 1
+    else:
+        df_args['P+S+C'] = df_args[['Premise', 'Stance', 'Conclusion']].apply(lambda x: ' '.join(x), axis=1)
+        df_args['P+C'] = df_args[['Premise',    'Conclusion']].apply(lambda x: ' '.join(x), axis=1)
+        df_args['P+S'] = df_args[['Premise',    'Stance']].apply(lambda x: ' '.join(x), axis=1)
+        df_args['C+S'] = df_args[['Conclusion', 'Stance']].apply(lambda x: ' '.join(x), axis=1)
+        df_args['stance_boolean'] = df_args['Stance'].map({"against": 0, "in favor of": 1, "in favour of": 1})
+        if df_args['stance_boolean'].isnull().values.any():
+            raise Exception(f"NAN problem in data 1")
+
     df_lbls = pd.read_table(datadir + '/labels-training.tsv')
     df_train = df_args.merge(df_lbls, how="left", on="Argument ID")
 
     df_args = pd.read_csv(datadir + '/arguments-validation.tsv', sep = '\t')
-    df_args['P+S+C'] = df_args[['Premise', 'Stance', 'Conclusion']].apply(lambda x: ' '.join(x), axis=1)
-    df_args['P+C'] = df_args[['Premise',    'Conclusion']].apply(lambda x: ' '.join(x), axis=1)
-    df_args['P+S'] = df_args[['Premise',    'Stance']].apply(lambda x: ' '.join(x), axis=1)
-    df_args['C+S'] = df_args[['Conclusion', 'Stance']].apply(lambda x: ' '.join(x), axis=1)
-    df_args['stance_boolean'] = df_args['Stance'].map({"against": 0, "in favor of": 1, "in favour of": 1})
-    if df_args['stance_boolean'].isnull().values.any():
-        raise Exception(f"NAN problem in data 1")
+    if (no_join):
+        df_args['P+S+C'] = df_args['Premise']
+        df_args['P+C'] = df_args['Premise']
+        df_args['P+S'] = df_args['Premise']
+        df_args['C+S'] = df_args['Premise']
+        df_args['stance_boolean'] = 1
+    else:
+        df_args['P+S+C'] = df_args[['Premise', 'Stance', 'Conclusion']].apply(lambda x: ' '.join(x), axis=1)
+        df_args['P+C'] = df_args[['Premise',    'Conclusion']].apply(lambda x: ' '.join(x), axis=1)
+        df_args['P+S'] = df_args[['Premise',    'Stance']].apply(lambda x: ' '.join(x), axis=1)
+        df_args['C+S'] = df_args[['Conclusion', 'Stance']].apply(lambda x: ' '.join(x), axis=1)
+        df_args['stance_boolean'] = df_args['Stance'].map({"against": 0, "in favor of": 1, "in favour of": 1})
+        if df_args['stance_boolean'].isnull().values.any():
+            raise Exception(f"NAN problem in data 1")
     df_lbls = pd.read_table(datadir + '/labels-validation.tsv')
     df_validation = df_args.merge(df_lbls, how="left", on="Argument ID")
     #print(df_validation[['Argument ID', "stance_boolean", "Stance"]].to_string())
     #exit(0)
 
     df_args = pd.read_table(datadir + '/arguments-test.tsv')
-    df_args['P+S+C'] = df_args[['Premise', 'Stance', 'Conclusion']].apply(lambda x: ' '.join(x), axis=1)
-    df_args['P+C'] = df_args[['Premise',    'Conclusion']].apply(lambda x: ' '.join(x), axis=1)
-    df_args['P+S'] = df_args[['Premise',    'Stance']].apply(lambda x: ' '.join(x), axis=1)
-    df_args['C+S'] = df_args[['Conclusion', 'Stance']].apply(lambda x: ' '.join(x), axis=1)
-    df_args['stance_boolean'] = df_args['Stance'].map({"against": 0, "in favor of": 1, "in favour of": 1})
-    if df_args['stance_boolean'].isnull().values.any():
-        raise Exception(f"NAN problem in data 1")
+    if (no_join):
+        df_args['P+S+C'] = df_args['Premise']
+        df_args['P+C'] = df_args['Premise']
+        df_args['P+S'] = df_args['Premise']
+        df_args['C+S'] = df_args['Premise']
+        df_args['stance_boolean'] = 1
+    else:
+        df_args['P+S+C'] = df_args[['Premise', 'Stance', 'Conclusion']].apply(lambda x: ' '.join(x), axis=1)
+        df_args['P+C'] = df_args[['Premise',    'Conclusion']].apply(lambda x: ' '.join(x), axis=1)
+        df_args['P+S'] = df_args[['Premise',    'Stance']].apply(lambda x: ' '.join(x), axis=1)
+        df_args['C+S'] = df_args[['Conclusion', 'Stance']].apply(lambda x: ' '.join(x), axis=1)
+        df_args['stance_boolean'] = df_args['Stance'].map({"against": 0, "in favor of": 1, "in favour of": 1})
+        if df_args['stance_boolean'].isnull().values.any():
+            raise Exception(f"NAN problem in data 1")
     df_test = df_args
 
     return df_train, df_validation, df_test

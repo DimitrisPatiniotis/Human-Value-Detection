@@ -43,7 +43,7 @@ common.setSeeds(seed)
 
 # Read dataset...
 datadir = '../Data'
-df_train_vast, df_validation_vast, df_test_vast = common.getData(datadir + "/vast")
+df_train_vast, df_validation_vast, df_test_vast = common.getData(datadir + "/vast", True)
 df_train, df_validation, df_test_vast = common.getData(datadir)
 
 #df_train_new=df_train.loc[(df_train['Stimulation']==1) | (df_train['Hedonism']==1) | (df_train['Face']==1)]
