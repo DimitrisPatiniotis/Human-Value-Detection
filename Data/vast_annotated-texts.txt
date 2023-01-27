@@ -1,6 +1,4 @@
 Argument ID	Conclusion	Stance	Premise
-Argument ID	Conclusion	Stance	Premise
-Argument ID	Conclusion	Stance	Premise
 A1	Once upon a time there was a rich man who had a servant who served him diligently and honestly		
 A2	Every morning he was the first one out of bed, and at night the last one to go to bed. Whenever there was a difficult job that nobody wanted to do, he was always the first to volunteer. He never complained at any of this, but was contented with everything and always happy		
 A3	He never complained at any of this, but was contented with everything and always happy		
