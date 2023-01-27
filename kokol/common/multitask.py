@@ -416,9 +416,9 @@ class SiameseClassificationHead(nn.Module):
                     self.layers.append(nn.Dropout(tl.dropout_p))
                 match tl.layer_type:
                     case "ResStart":
-                        self.layers.append(ResBlockEnd)
+                        self.layers.append(ResBlockStart())
                     case "ResEnd":
-                        self.layers.append(ResBlockStart)
+                        self.layers.append(ResBlockEnd())
                     case "Conv1d":
                         layer = nn.Conv1d(in_channels=tl.in_channels,
                                           out_channels=tl.out_channels,
@@ -434,10 +434,11 @@ class SiameseClassificationHead(nn.Module):
                             (input_size + 2 * tl.padding - tl.dilation * (tl.kernel_size - 1) - 1) / tl.stride + 1)
                         self.layers.append(layer)
 
-                        layer = nn.BatchNorm1d(tl.out_features)
-                        self.layers.append(layer)
+                        if(tl.out_channels>1):
+                            layer = nn.BatchNorm1d(tl.out_channels)
+                            self.layers.append(layer)
 
-                        layer = nn.SiLU(inplace=True)
+                        layer = nn.SiLU()
                         self.layers.append(layer)
                     case "AvgPool1d":
                         layer = nn.AvgPool1d(tl.kernel_size)
@@ -480,9 +481,9 @@ class SiameseClassificationHead(nn.Module):
                         self.layers2.append(nn.Dropout(tl.dropout_p))
                     match tl.layer_type:
                         case "ResStart":
-                            self.layers2.append(ResBlockEnd)
-                        case "ResEnd":
                             self.layers2.append(ResBlockStart)
+                        case "ResEnd":
+                            self.layers2.append(ResBlockEnd)
                         case "Conv1d":
                             layer = nn.Conv1d(in_channels=tl.in_channels,
                                               out_channels=tl.out_channels,
@@ -494,11 +495,15 @@ class SiameseClassificationHead(nn.Module):
                                               groups=tl.groups,
                                               bias=tl.bias)
                             self._init_weights(layer)
-                            tl.out_features = math.floor(
-                                (input_size + 2 * tl.padding - tl.dilation * (tl.kernel_size - 1) - 1) / tl.stride + 1)
+
+                            if (tl.out_channels > 1):
+                                layer = nn.BatchNorm1d(tl.out_channels)
+                                self.layers2.append(layer)
+
+                            layer = nn.SiLU()
                             self.layers2.append(layer)
 
-                            layer = nn.BatchNorm1d(tl.out_features)
+                            layer = nn.BatchNorm1d(tl.in_channels)
                             # self._init_weights(layer)
                             # tl.out_features = input_size
                             self.layers2.append(layer)
@@ -553,7 +558,10 @@ class SiameseClassificationHead(nn.Module):
         tmp_input = 0
         for layer in self.layers:
             if isinstance(layer, nn.Conv1d):
-                output = layer(output.unsqueeze(1)).squeeze(1)
+                if output.dim()==2:
+                    output = layer(output.unsqueeze(1)).squeeze(1)
+                else:
+                    output = layer(output)
             elif isinstance(layer,ResBlockStart):
                 tmp_input = output
             elif isinstance(layer,ResBlockEnd):
@@ -563,7 +571,14 @@ class SiameseClassificationHead(nn.Module):
 
         for layer in self.layers2:
             if isinstance(layer, nn.Conv1d):
-                output2 = layer(output2.unsqueeze(1)).squeeze(1)
+                if output2.dim() == 2:
+                    output2 = layer(output2.unsqueeze(1)).squeeze(1)
+                else:
+                    output2 = layer(output2)
+            elif isinstance(layer, ResBlockStart):
+                tmp_input = output2
+            elif isinstance(layer, ResBlockEnd):
+                output2 += tmp_input
             else:
                 output2 = layer(output2)
 

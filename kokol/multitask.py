@@ -43,12 +43,13 @@ common.setSeeds(seed)
 
 # Read dataset...
 datadir = '../Data'
-df_train, df_validation, df_test = common.getData(datadir)
+df_train_vast, df_validation_vast, df_test_vast = common.getData(datadir + "/vast")
+df_train, df_validation, df_test_vast = common.getData(datadir)
 
-df_train_new=df_train.loc[(df_train['Stimulation']==1) | (df_train['Hedonism']==1) | (df_train['Face']==1)]
-df_train=df_train.sample(n=math.floor(df_train_new.shape[0]/3)).merge(df_train_new)
+#df_train_new=df_train.loc[(df_train['Stimulation']==1) | (df_train['Hedonism']==1) | (df_train['Face']==1)]
+#df_train=df_train.sample(n=math.floor(df_train_new.shape[0]/3)).merge(df_train_new)
 
-dataset = common.getDatasets(df_train, df_validation, df_test)
+dataset = common.getDatasets(df_train, df_validation, df_test_vast)
 
 # Get dataset labels...
 labels = [label for label in dataset['train'].features.keys() if label not in common.dataLabels]
@@ -102,30 +103,30 @@ args = TrainingArguments(
 )
 
 task_layers = [
-    TaskLayer(layer_type="Conv1d", in_channels=1, out_channels=1, kernel_size=7, padding=3),
-    TaskLayer(layer_type="MaxPool1d", kernel_size=3),
+    TaskLayer(layer_type="Conv1d", in_channels=1, out_channels=1, kernel_size=3, padding=1),
+    TaskLayer(layer_type="MaxPool1d", kernel_size=2),
     TaskLayer(out_features=128, activation="SiLU", dropout_p=0.25),
 
-    TaskLayer(layer_type="ResStart")
-    TaskLayer(layer_type="Conv1d", in_channels=1, out_channels=1, kernel_size=3, padding=3, stride=2),
-    TaskLayer(layer_type="Conv1d", in_channels=1, out_channels=1, kernel_size=3, padding=1, stride=1),
-    TaskLayer(layer_type="ResEnd")
-    TaskLayer(out_features=128, activation="SiLU", dropout_p=0.25),
+    #TaskLayer(layer_type="ResStart"),
+    #TaskLayer(layer_type="Conv1d", in_channels=64, out_channels=64, kernel_size=3, padding=3, stride=2),
+    #TaskLayer(layer_type="Conv1d", in_channels=64, out_channels=1, kernel_size=3, padding=1, stride=1),
+    #TaskLayer(layer_type="ResEnd"),
+    #TaskLayer(out_features=128, activation="SiLU", dropout_p=0.25),
 ]
 task_layers2 = [
-    TaskLayer(layer_type="Conv1d", in_channels=1, out_channels=1, kernel_size=5, padding=2),
-    TaskLayer(layer_type="AvgPool1d", kernel_size=2),
+    #TaskLayer(layer_type="Conv1d", in_channels=1, out_channels=1, kernel_size=5, padding=2),
+    #TaskLayer(layer_type="AvgPool1d", kernel_size=2),
     TaskLayer(out_features=128, activation="SiLU", dropout_p=0.25),
 ]
 
 tid = 0
 tasks = [
     #Task(id=(tid:=tid+1), name="v-CE-sum", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="CrossEntropyLoss",         loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers, task_layers2=task_layers2),
-    #Task(id=(tid:=tid+1), name="v-BCE-sum", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="BCEWithLogitsLoss",        loss_reduction="sum", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers, task_layers2=task_layers2),
+    Task(id=(tid:=tid+1), name="v-BCE-sum", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="BCEWithLogitsLoss",        loss_reduction="mean", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers)#, task_layers2=task_layers2),
 
-    Task(id=(tid := tid + 1), name="v-CE-sum", num_labels=len(labels), problem_type="multi_label_classification",
-         type="seq_classification_siamese", loss="CrossEntropyLoss", loss_reduction="sum",
-         loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
+    #Task(id=(tid := tid + 1), name="v-CE-sum", num_labels=len(labels), problem_type="multi_label_classification",
+    #     type="seq_classification_siamese", loss="CrossEntropyLoss", loss_reduction="sum",
+    #     loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
     #Task(id=(tid := tid + 1), name="v-BCE-sum", num_labels=len(labels), problem_type="multi_label_classification",
     #     type="seq_classification_siamese", loss="BCEWithLogitsLoss", loss_reduction="sum",
     #     loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
