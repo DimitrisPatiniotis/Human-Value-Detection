@@ -204,12 +204,24 @@ def remove_noisy_examples(df, labels, classes=["Universalism: concern", "Securit
     return df
 
 
-def split_imballance_dataset(df, labels):
-    counter = Counter()
-    for c in labels:
-        counter[c] += df[c].sum()
-    for c, f in counter.most_common():
-        pass
+def split_imballance_dataset_map(dataset, labels=[], minority_class_indexes=[], task_ids=[], minority_task_ids=[]):
+    # Generate the vector of minorities...
+    indices = np.where(dataset['labels'][:, minority_class_indexes].sum(dim=-1) > 0)
+    # Generate a matrix (N, number_of_tasks)
+    tasks_ids_array = torch.empty((len(dataset['labels']), len(task_ids)), dtype=torch.int8)
+    for i, id in enumerate(task_ids):
+        if id in minority_task_ids:
+            tasks_ids_array[:, i] = -1
+            tasks_ids_array[indices, i] = int(i+1)
+        else:
+            tasks_ids_array[:, i] = int(i+1)
+    dataset['task_ids'] = tasks_ids_array
+    return dataset
+
+
+def split_imballance_dataset(dataset: Dataset, labels=[], minority_class_indexes=[], task_ids=[], minority_task_ids=[]):
+    return dataset.map(partial(split_imballance_dataset_map, labels=labels, minority_class_indexes=minority_class_indexes, task_ids=task_ids, minority_task_ids=minority_task_ids),
+        batched=True)
 
 
 save_eval_result_df = None

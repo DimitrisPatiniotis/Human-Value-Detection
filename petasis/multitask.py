@@ -4,6 +4,7 @@ from common.multitask import Task, TaskLayer, MultiTaskModel
 from common import tensorboard as tfboard
 from transformers import AutoTokenizer, TrainingArguments, Trainer
 from functools import partial
+from collections import Counter
 import subprocess
 import numpy as np
 import pandas as pd
@@ -106,18 +107,39 @@ tasks = [
     Task(id=(tid:=tid+1), name="v-CE-mean", num_labels=len(labels),   problem_type="multi_label_classification", loss="CrossEntropyLoss",         loss_reduction="mean",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
     #Task(id=(tid:=tid+1), name="v-MLSM-mean", num_labels=len(labels), problem_type="multi_label_classification", loss="MultiLabelSoftMarginLoss", loss_reduction="mean",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
     Task(id=(tid:=tid+1), name="v-BCE-mean", num_labels=len(labels),  problem_type="multi_label_classification", loss="BCEWithLogitsLoss",        loss_reduction="mean",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
+    Task(id=(tid:=tid+1), name="v-BCE-mean-minorities", num_labels=len(labels),  problem_type="multi_label_classification", loss="BCEWithLogitsLoss",        loss_reduction="mean",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
+
     #Task(id=(tid:=tid+1), name="v-SF-mean", num_labels=len(labels),   problem_type="multi_label_classification", loss="sigmoid_focal_loss",       loss_reduction="mean")
     #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="SigmoidMultiLabelSoftMarginLoss", loss_reduction="sum", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
     #Task(id=(tid:=tid+1), name="stance", num_labels=2, problem_type="single_label_classification", loss="sigmoid_focal_loss", loss_reduction="sum", labels="labels_stance")
 
 ]
 print("Task ids:", [t.id for t in tasks])
+minority_task_ids = [3]
 tfboard.filename_suffix = "_".join([t.name for t in tasks])
 
 ## Tokenise dataset...
 tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
 encoded_dataset = common.encodeDataset(dataset, labels, tokenizer, max_length, sent1=Sentence1, sent2=Sentence2, task_ids=[t.id for t in tasks])
 
+if minority_task_ids is not None and len(minority_task_ids):
+    # Calculate minority classes...
+    counter = Counter()
+    for i, c in enumerate(labels):
+        counter[i] += df_train[c].sum()
+    minority_classes = []
+    minority_class_indexes = []
+    for c, f in counter.most_common():
+        if f < 500:
+            minority_class_indexes.append(c)
+            minority_classes.append(labels[c])
+            print(f"Minority Class: {labels[c]} ({f})")
+
+    encoded_dataset['train'] = common.split_imballance_dataset(encoded_dataset['train'],
+                                                               labels=labels,
+                                                               minority_class_indexes=minority_class_indexes,
+                                                               task_ids=[t.id for t in tasks],
+                                                               minority_task_ids=minority_task_ids)
 
 def instantiate_model(pretrained_model_name, tasks, freezeLayers=False):
     model = MultiTaskModel(pretrained_model_name, tasks)
