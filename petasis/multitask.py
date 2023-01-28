@@ -12,6 +12,14 @@ from torchinfo import summary
 import optuna
 from transformers.integrations import TensorBoardCallback
 
+import nlpaug.augmenter.char as nac
+import nlpaug.augmenter.word as naw
+import nlpaug.augmenter.sentence as nas
+import nlpaug.flow as nafc
+
+import os
+os.environ["MODEL_DIR"] = './models'
+
 ############################################################
 ## Parameters
 ############################################################
@@ -19,6 +27,9 @@ seed = 2022
 pretrained_model_name = "bert-base-uncased"
 # pretrained_model_name = "bert-large-uncased"
 # pretrained_model_name = "facebook/bart-base"
+perform_train         = True
+perform_evaluation    = True
+perform_test          = True
 learning_rate         = 2e-5
 # learning_rate         = 3e-3
 batch_size            = 8
@@ -44,6 +55,31 @@ common.setSeeds(seed)
 # Read dataset...
 datadir = '../Data'
 df_train, df_validation, df_test = common.getData(datadir)
+
+# Add validation to training...
+#df_train = pd.concat([df_train, df_validation], ignore_index=True)
+
+#
+# Data Augmentation
+#
+
+if use_data_augmentation:
+    df_train_copy = df_train.copy()
+
+    # Augment using wordnet
+    tmp_aug = df_train_copy.copy()
+    aug = naw.SynonymAug(aug_src='wordnet', lang='eng')
+    print("wordnet")
+    for i, row in tmp_aug.iterrows():
+        #print(tmp_aug.at[i,'P+S+C'])
+        if i % 100 == 0:
+            print(i)
+        new_text=aug.augment(tmp_aug.at[i,'P+S+C'])
+        j=0
+        #for j in range(0,2):
+        tmp_aug.at[i,'P+S+C'] = str(new_text[j])
+    df_train = pd.concat([df_train, tmp_aug], ignore_index=True)
+    df_train = df_train.sample(frac=1)
 
 # Get dataset labels...
 #labels = [label for label in dataset['train'].features.keys() if label not in common.dataLabels]
@@ -254,17 +290,29 @@ if hperparam_search:
     exit(0)
 
 #common.show_memory("Memory before Training")
-print("############### Training:")
-trainer.train()
-#common.show_memory("Memory after Training")
-print("############### Evaluation:")
-common.save_eval_result_df = df_validation
-results = trainer.evaluate()
-trainer.save_model(best_output_dir)
-#common.show_memory("Memory after Evaluation")
-common.save_eval_result_df = None
-print(results)
-cmd = subprocess.run(["python", "evaluator.py",
-                      "--inputDataset", "evaluationLabels",
-                      "--inputRun", "evaluationResults",
-                      "--outputDataset", "evaluationResults"])
+if perform_train:
+    print("############### Training:")
+    trainer.train()
+    trainer.save_model(best_output_dir)
+    #common.show_memory("Memory after Training")
+
+if perform_evaluation:
+    print("############### Evaluation:")
+    common.save_eval_result_df = df_validation
+    common.evaluationResultsFilename = "validation.tsv"
+    results = trainer.evaluate()
+    #common.show_memory("Memory after Evaluation")
+    common.save_eval_result_df = None
+    print(results)
+    cmd = subprocess.run(["python", "evaluator.py",
+                          "--inputDataset", "evaluationLabels",
+                          "--inputRun", "evaluationResults",
+                          "--outputDataset", "evaluationResults"])
+if perform_test:
+    print("############### Test:")
+    common.save_eval_result_df = df_test
+    common.evaluationResultsFilename = "test.tsv"
+    results = trainer.predict(encoded_dataset["test"])
+    common.save_eval_result_df = None
+
+
