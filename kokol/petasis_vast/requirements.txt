@@ -1,0 +1,14 @@
+torch
+transformers
+datasets
+pandas
+scikit-learn
+pykeops
+torchinfo
+optuna
+optuna-dashboard
+tensorboard
+tensorboardX
+matplotlib
+matplotlib-venn
+pretty-confusion-matrix

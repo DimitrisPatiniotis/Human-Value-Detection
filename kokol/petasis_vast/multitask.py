@@ -54,6 +54,8 @@ datadir = '../../Data'
 #df_train_vast, df_validation_vast, df_test_vast = common.getData(datadir + "/vast", True)
 df_train, df_validation, df_test = common.getData(datadir)
 
+from sklearn.model_selection import train_test_split
+
 df_train = pd.concat([df_train, df_validation], ignore_index=True)
 
 #df_train_new=df_train.loc[(df_train['Stimulation']==1) | (df_train['Hedonism']==1) | (df_train['Face']==1)]
@@ -62,7 +64,10 @@ df_train = pd.concat([df_train, df_validation], ignore_index=True)
 #df_train_vast = df_train_vast.dropna()
 #df_train = pd.concat([df_train, df_train_vast])
 
+df_train, df_validation = train_test_split(df_train, test_size=0.1)
+
 df_train_copy = df_train.copy()
+
 
 
 #Augment using wordnet
