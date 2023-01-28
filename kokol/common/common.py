@@ -178,7 +178,7 @@ def preprocess_data(examples, labels, tokenizer, max_length=200, task_ids=[0], s
         return encoding
 
 
-def encodeDataset(dataset, labels, tokenizer, max_length=200, sent1="C+S", sent2="Premise", task_ids=[0]):
+def encodeDataset(dataset, labels, tokenizer, max_length=200, sent1="P+C+S", sent2=None, task_ids=[0]):
     encoded_dataset = dataset.map(
         partial(preprocess_data, labels=labels, tokenizer=tokenizer, max_length=max_length,
         sent1=sent1, sent2=sent2, task_ids=task_ids),

@@ -47,7 +47,10 @@ df_train_vast, df_validation_vast, df_test_vast = common.getData(datadir + "/vas
 df_train, df_validation, df_test_vast = common.getData(datadir)
 
 #df_train_new=df_train.loc[(df_train['Stimulation']==1) | (df_train['Hedonism']==1) | (df_train['Face']==1)]
-#df_train=df_train.sample(n=math.floor(df_train_new.shape[0]/3)).merge(df_train_new)
+#df_train=pd.concat([df_train.sample(n=math.floor(df_train_new.shape[0]/3)), df_train_new])
+
+df_train_vast = df_train_vast.dropna()
+df_train = pd.concat([df_train, df_train_vast])
 
 dataset = common.getDatasets(df_train, df_validation, df_test_vast)
 
@@ -105,18 +108,18 @@ args = TrainingArguments(
 task_layers = [
     TaskLayer(layer_type="Conv1d", in_channels=1, out_channels=1, kernel_size=3, padding=1),
     TaskLayer(layer_type="MaxPool1d", kernel_size=2),
-    TaskLayer(out_features=128, activation="SiLU", dropout_p=0.25),
+    TaskLayer(out_features=128, activation="SiLU", dropout_p=0.1),
 
-    #TaskLayer(layer_type="ResStart"),
-    #TaskLayer(layer_type="Conv1d", in_channels=64, out_channels=64, kernel_size=3, padding=3, stride=2),
-    #TaskLayer(layer_type="Conv1d", in_channels=64, out_channels=1, kernel_size=3, padding=1, stride=1),
-    #TaskLayer(layer_type="ResEnd"),
-    #TaskLayer(out_features=128, activation="SiLU", dropout_p=0.25),
+    TaskLayer(layer_type="ResStart"),
+    TaskLayer(layer_type="Conv1d", in_channels=64, out_channels=64, kernel_size=3, padding=3, stride=2),
+    TaskLayer(layer_type="Conv1d", in_channels=64, out_channels=1, kernel_size=3, padding=1, stride=1),
+    TaskLayer(layer_type="ResEnd"),
+    TaskLayer(out_features=128, activation="SiLU", dropout_p=0.1),
 ]
 task_layers2 = [
     #TaskLayer(layer_type="Conv1d", in_channels=1, out_channels=1, kernel_size=5, padding=2),
     #TaskLayer(layer_type="AvgPool1d", kernel_size=2),
-    TaskLayer(out_features=128, activation="SiLU", dropout_p=0.25),
+    TaskLayer(out_features=128, activation="SiLU", dropout_p=0.1),
 ]
 
 tid = 0
