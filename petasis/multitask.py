@@ -35,6 +35,8 @@ learning_rate         = 2e-5
 batch_size            = 8
 metric_name           = "f1"
 num_train_epochs      = 32
+use_data_augmentation = False
+include_validation_for_train = False
 use_class_weights     = False
 use_pos_weights       = True
 freeze_layers_bert    = False
@@ -57,7 +59,8 @@ datadir = '../Data'
 df_train, df_validation, df_test = common.getData(datadir)
 
 # Add validation to training...
-#df_train = pd.concat([df_train, df_validation], ignore_index=True)
+if include_validation_for_train:
+    df_train = pd.concat([df_train, df_validation], ignore_index=True)
 
 #
 # Data Augmentation
