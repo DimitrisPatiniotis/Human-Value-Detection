@@ -16,7 +16,8 @@ from transformers.integrations import TensorBoardCallback
 ## Parameters
 ############################################################
 seed = 2022
-pretrained_model_name = "bert-base-uncased"
+pretrained_model_name = "roberta-base"
+pretrained_model_name2 = "bert-base-uncased"
 # pretrained_model_name = "bert-large-uncased"
 # pretrained_model_name = "facebook/bart-base"
 learning_rate         = 2e-5
@@ -106,40 +107,42 @@ args = TrainingArguments(
 )
 
 task_layers = [
-    TaskLayer(layer_type="Conv1d", in_channels=1, out_channels=1, kernel_size=3, padding=1),
-    TaskLayer(layer_type="MaxPool1d", kernel_size=2),
-    TaskLayer(out_features=128, activation="SiLU", dropout_p=0.1),
+    #TaskLayer(layer_type="Conv1d", in_channels=1, out_channels=1, kernel_size=3, padding=1),
+    #TaskLayer(layer_type="MaxPool1d", kernel_size=2),
+    #TaskLayer(out_features=128, activation="SiLU", dropout_p=0.1),
 
-    TaskLayer(layer_type="ResStart"),
-    TaskLayer(layer_type="Conv1d", in_channels=64, out_channels=64, kernel_size=3, padding=3, stride=2),
-    TaskLayer(layer_type="Conv1d", in_channels=64, out_channels=1, kernel_size=3, padding=1, stride=1),
-    TaskLayer(layer_type="ResEnd"),
+    #TaskLayer(layer_type="ResStart"),
+    #TaskLayer(layer_type="Conv1d", in_channels=64, out_channels=64, kernel_size=3, padding=3, stride=2),
+    #TaskLayer(layer_type="Conv1d", in_channels=64, out_channels=1, kernel_size=3, padding=1, stride=1),
+    #TaskLayer(layer_type="ResEnd"),
     TaskLayer(out_features=128, activation="SiLU", dropout_p=0.1),
 ]
 task_layers2 = [
     #TaskLayer(layer_type="Conv1d", in_channels=1, out_channels=1, kernel_size=5, padding=2),
     #TaskLayer(layer_type="AvgPool1d", kernel_size=2),
+    #TaskLayer(out_features=128, activation="SiLU", dropout_p=0.1),
+    #TaskLayer(out_features=128, activation="SiLU", dropout_p=0.1),
+    #TaskLayer(out_features=128, activation="SiLU", dropout_p=0.1),
     TaskLayer(out_features=128, activation="SiLU", dropout_p=0.1),
+
 ]
 
 tid = 0
 tasks = [
-    #Task(id=(tid:=tid+1), name="v-CE-sum", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="CrossEntropyLoss",         loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers, task_layers2=task_layers2),
-    Task(id=(tid:=tid+1), name="v-BCE-sum", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="BCEWithLogitsLoss",        loss_reduction="mean", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers)#, task_layers2=task_layers2),
-
-    #Task(id=(tid := tid + 1), name="v-CE-sum", num_labels=len(labels), problem_type="multi_label_classification",
-    #     type="seq_classification_siamese", loss="CrossEntropyLoss", loss_reduction="sum",
-    #     loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
-    #Task(id=(tid := tid + 1), name="v-BCE-sum", num_labels=len(labels), problem_type="multi_label_classification",
-    #     type="seq_classification_siamese", loss="BCEWithLogitsLoss", loss_reduction="sum",
-    #     loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
-
-    #Task(id=(tid:=tid+1), name="v-MLSM-sum", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="MultiLabelSoftMarginLoss", loss_reduction="sum",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers, task_layers2=task_layers2),
-    #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", type="seq_classification_siamese", loss="MultiLabelSoftMarginLoss", loss_reduction="mean", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
-    #Task(id=(tid:=tid+1), name="values", num_labels=len(labels), problem_type="multi_label_classification", loss="SigmoidMultiLabelSoftMarginLoss", loss_reduction="sum", loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=None),
-
-    #Task(id=(tid:=tid+1), name="stance", num_labels=2, problem_type="single_label_classification", loss="sigmoid_focal_loss", loss_reduction="sum", labels="labels_stance")
-
+    Task(id=(tid := tid + 1), type="seq_classification_siamese",name="v-CE-mean", num_labels=len(labels), problem_type="multi_label_classification",
+         loss="CrossEntropyLoss", loss_reduction="mean", loss_pos_weight=loss_pos_weights,
+         loss_class_weight=loss_class_weights, task_layers=task_layers, task_layers2=task_layers2),
+    Task(id=(tid := tid + 1),type="seq_classification_siamese", name="v-BCE-mean", num_labels=len(labels), problem_type="multi_label_classification",
+         loss="BCEWithLogitsLoss", loss_reduction="mean", loss_pos_weight=loss_pos_weights,
+         loss_class_weight=loss_class_weights, task_layers=task_layers, task_layers2=task_layers2),
+    # Task(id=(tid:=tid+1), name="v-CE-mean-minorities", num_labels=len(labels),   problem_type="multi_label_classification", loss="CrossEntropyLoss",         loss_reduction="mean",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
+    # Task(id=(tid:=tid+1), name="v-BCE-mean-minorities", num_labels=len(labels),  problem_type="multi_label_classification", loss="BCEWithLogitsLoss",        loss_reduction="mean",  loss_pos_weight=loss_pos_weights, loss_class_weight=loss_class_weights, task_layers=task_layers),
+    Task(id=(tid := tid + 1), type="seq_classification_siamese",name="v-CE-mean-minorities-nw", num_labels=len(labels),
+         problem_type="multi_label_classification", loss="CrossEntropyLoss", loss_reduction="mean",
+         loss_pos_weight=None, loss_class_weight=None, task_layers=task_layers, task_layers2=task_layers2),
+    Task(id=(tid := tid + 1), type="seq_classification_siamese",name="v-BCE-mean-minorities-nw", num_labels=len(labels),
+         problem_type="multi_label_classification", loss="BCEWithLogitsLoss", loss_reduction="mean",
+         loss_pos_weight=None, loss_class_weight=None, task_layers=task_layers, task_layers2=task_layers2),
 ]
 print("Task ids:", [t.id for t in tasks])
 tfboard.filename_suffix = "_".join([t.name for t in tasks])
@@ -150,8 +153,8 @@ tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
 encoded_dataset = common.encodeDataset(dataset, labels, tokenizer, max_length, sent1=Sentence1, sent2=Sentence2, task_ids=[t.id for t in tasks])
 
 
-def instantiate_model(pretrained_model_name, tasks, freezeLayers=False):
-    model = MultiTaskModel(pretrained_model_name, tasks)
+def instantiate_model(pretrained_model_name, pretrained_model_name2, tasks, freezeLayers=False):
+    model = MultiTaskModel(pretrained_model_name, pretrained_model_name2, tasks)
     ## Freeze layers...
     if freezeLayers:
         model.freeze(False)
@@ -183,7 +186,7 @@ def model_init(trial=None):
             tasks[1].loss_reduction_weight = (1. - params["theta"])**2
 
 
-    model = instantiate_model(pretrained_model_name, tasks, freeze_layers_bert)
+    model = instantiate_model(pretrained_model_name, pretrained_model_name2, tasks, freeze_layers_bert)
     # print(model)
     #summary(model, input_size=(2, max_length), depth=4, dtypes=['torch.IntTensor'], device="cpu")
 

@@ -69,11 +69,11 @@ class ResBlockEnd(nn.Module):
         print("Placeholder")
 
 class MultiTaskModel(nn.Module):
-    def __init__(self, encoder_name_or_path, tasks: List):
+    def __init__(self, encoder_name_or_path: str, encoder_name_or_path2: str, tasks: List):
         super().__init__()
 
         self.encoder = AutoModel.from_pretrained(encoder_name_or_path)
-        self.encoder2 = AutoModel.from_pretrained(encoder_name_or_path)
+        self.encoder2 = AutoModel.from_pretrained(encoder_name_or_path2)
 
         self.output_heads      = nn.ModuleDict()
         #self.output_heads_list = nn.ModuleList()
@@ -81,7 +81,7 @@ class MultiTaskModel(nn.Module):
         self.tasks = tasks
         self.labels_name = {}
         for task in tasks:
-            decoder = self._create_output_head(self.encoder.config.hidden_size, task, )
+            decoder = self._create_output_head(self.encoder.config.hidden_size, self.encoder2.config.hidden_size, task)
             # ModuleDict requires keys to be strings
             self.output_heads[str(task.id)] = decoder
             self.labels_name[str(task.id)] = task.labels
@@ -96,11 +96,11 @@ class MultiTaskModel(nn.Module):
         #     #print(name, param.requires_grad)
 
     @staticmethod
-    def _create_output_head(encoder_hidden_size: int, task):
+    def _create_output_head(encoder_hidden_size: int, encoder_hidden_size2: int, task):
         if task.type == "seq_classification":
             return SequenceClassificationHead(encoder_hidden_size, task.num_labels, task=task)
         elif task.type == "seq_classification_siamese":
-            return SiameseClassificationHead(encoder_hidden_size, task.num_labels, task=task)
+            return SiameseClassificationHead(encoder_hidden_size, encoder_hidden_size2, task.num_labels, task=task)
         elif task.type == "token_classification":
             return TokenClassificationHead(encoder_hidden_size, task.num_labels, task=task)
         else:
@@ -400,7 +400,7 @@ class SequenceClassificationHead(nn.Module):
         return logits, loss
 
 class SiameseClassificationHead(nn.Module):
-    def __init__(self, hidden_size, num_labels, task=None, dropout_p=0.1):
+    def __init__(self, hidden_size, hidden_size2, num_labels, task=None, dropout_p=0.1):
         super().__init__()
         self.num_labels = num_labels
         self.task = task
@@ -474,7 +474,7 @@ class SiameseClassificationHead(nn.Module):
         if task.task_layers2 is not None:
             if (len(task.task_layers2)>0):
                 self.second_net=True
-                input_size = hidden_size
+                input_size = hidden_size2
                 for tl in task.task_layers2:
                     ## Dropout...
                     if tl.dropout_p is not None:
@@ -665,7 +665,10 @@ class SiameseClassificationHead(nn.Module):
                                     loss_fct = nn.CrossEntropyLoss(reduction=self.task.loss_reduction, weight=self.task.loss_class_weight.to(logits.device))
                                 loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1, self.num_labels))
                             case _:
-                                loss_fct = nn.BCEWithLogitsLoss(reduction=reduction, pos_weight=self.task.loss_pos_weight.to(logits.device))
+                                if self.task.loss_pos_weight is None:
+                                    loss_fct = nn.BCEWithLogitsLoss(reduction=reduction)
+                                else:
+                                    loss_fct = nn.BCEWithLogitsLoss(reduction=reduction, pos_weight=self.task.loss_pos_weight.to(logits.device))
                                 loss = loss_fct(logits, labels)
                         if reduction == "none":
                             match self.task.loss_reduction:
