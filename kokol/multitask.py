@@ -11,6 +11,13 @@ import pandas as pd
 from torchinfo import summary
 import optuna
 from transformers.integrations import TensorBoardCallback
+import nlpaug.augmenter.char as nac
+import nlpaug.augmenter.word as naw
+import nlpaug.augmenter.sentence as nas
+import nlpaug.flow as nafc
+
+import os
+os.environ["MODEL_DIR"] = '/tmp/models'
 
 ############################################################
 ## Parameters
@@ -24,7 +31,7 @@ learning_rate         = 2e-5
 # learning_rate         = 3e-3
 batch_size            = 16
 metric_name           = "loss"
-num_train_epochs      = 1280
+num_train_epochs      = 10
 use_class_weights     = True
 use_pos_weights       = True
 freeze_layers_bert    = False
@@ -42,21 +49,52 @@ common.setSeeds(seed)
 
 # from transformers import AutoModelForSequenceClassification
 
-# Read dataset...
 datadir = '../Data'
-df_train_vast, df_validation_vast, df_test_vast = common.getData(datadir + "/vast", True)
-df_train, df_validation, df_test_vast = common.getData(datadir)
+#df_train_vast, df_validation_vast, df_test_vast = common.getData(datadir + "/vast", True)
+df_train, df_validation, df_test = common.getData(datadir)
 
-#df_train_new=df_train.loc[(df_train['Stimulation']==1) | (df_train['Hedonism']==1) | (df_train['Face']==1)]
-#df_train=pd.concat([df_train.sample(n=math.floor(df_train_new.shape[0]/3)), df_train_new])
+from sklearn.model_selection import train_test_split
 
-df_train_vast = df_train_vast.dropna()
-df_train = pd.concat([df_train, df_train_vast])
+df_with_val = pd.concat([df_train, df_validation], ignore_index=True)
 
-dataset = common.getDatasets(df_train, df_validation, df_test_vast)
+
+#df_train_vast = df_train_vast.dropna()
+#df_train = pd.concat([df_train, df_train_vast])
+
+df_train_1, df_train_2 = train_test_split(df_train, test_size=0.3)
+df_train_with_val, df_val_with_val = train_test_split(df_with_val, test_size=0.03)
+
+df_train_copy = df_train_with_val.copy()
+#Augment using wordnet
+tmp_aug = df_train_copy.copy()
+aug = naw.SynonymAug(aug_src='wordnet', lang='eng')
+print("wordnet")
+for i, row in tmp_aug.iterrows():
+    #print(tmp_aug.at[i,'P+S+C'])
+    if i % 10 == 0:
+        print(i)
+    new_text=aug.augment(tmp_aug.at[i,'P+S+C'])
+    j=0
+    #for j in range(0,2):
+    tmp_aug.at[i,'P+S+C'] = str(new_text[j])
+df_train_with_val = pd.concat([df_train_with_val, tmp_aug])
+'''
+#augment using BERT
+print("BERT")
+tmp_aug = df_train_copy.copy()
+aug = naw.ContextualWordEmbsAug(model_path='bert-base-uncased', aug_p=0.2, device='cuda')
+for i, row in tmp_aug.iterrows():
+    if i%10==0:
+        print(i)
+    new_text=aug.augment(tmp_aug.at[i,'P+S+C'])
+    tmp_aug.at[i,'P+S+C'] = new_text[0]
+df_train = pd.concat([df_train, tmp_aug])
+'''
+df_train = df_train.sample(frac=1)
 
 # Get dataset labels...
-labels = [label for label in dataset['train'].features.keys() if label not in common.dataLabels]
+#labels = [label for label in dataset['train'].features.keys() if label not in common.dataLabels]
+labels = [label for label in df_train.columns if label not in common.dataLabels]
 id2label = {idx:label for idx, label in enumerate(labels)}
 label2id = {label:idx for idx, label in enumerate(labels)}
 # print("Labels:", len(labels), labels)
@@ -64,7 +102,13 @@ tfboard.display_labels=labels
 
 # Maria's idea...
 #df_train = common.remove_noisy_examples(df_train, labels=labels, classes=None)
-#dataset = common.getDatasets(df_train, df_validation, df_test)
+dataset1 = common.getDatasets(df_train_1, df_train_2, df_test)
+dataset = common.getDatasets(df_train, df_validation, df_test)
+datasetval = common.getDatasets(df_train_with_val, df_val_with_val, df_test)
+
+# Get class weights...
+loss_pos_weights   = None
+loss_class_weights = None
 
 # Get class weights...
 loss_pos_weights   = None
@@ -89,6 +133,22 @@ if use_pos_weights:
     print("Positive weights: sum()=", sum(loss_pos_weights))
     for i, lbl in enumerate(labels):
         print(lbl, "=", loss_pos_weights[i])
+
+args_pretrain = TrainingArguments(
+    output_dir                  = output_dir,
+    evaluation_strategy         = "epoch",
+    save_strategy               = "epoch" if save_checkpoints else "no",
+    eval_steps                  = 10,
+    learning_rate               = learning_rate,
+    per_device_train_batch_size = 8,
+    per_device_eval_batch_size  = 8,
+    num_train_epochs            = 5,
+    weight_decay                = 0.01,
+    load_best_model_at_end      = True if save_checkpoints else False,
+    metric_for_best_model       = metric_name,
+    seed                        = seed,
+    # push_to_hub=True,
+)
 
 args = TrainingArguments(
     output_dir                  = output_dir,
@@ -115,7 +175,7 @@ task_layers = [
     #TaskLayer(layer_type="Conv1d", in_channels=64, out_channels=64, kernel_size=3, padding=3, stride=2),
     #TaskLayer(layer_type="Conv1d", in_channels=64, out_channels=1, kernel_size=3, padding=1, stride=1),
     #TaskLayer(layer_type="ResEnd"),
-    TaskLayer(out_features=128, activation="SiLU", dropout_p=0.1),
+    TaskLayer(out_features=64, activation="SiLU", dropout_p=0.1),
 ]
 task_layers2 = [
     #TaskLayer(layer_type="Conv1d", in_channels=1, out_channels=1, kernel_size=5, padding=2),
@@ -123,7 +183,7 @@ task_layers2 = [
     #TaskLayer(out_features=128, activation="SiLU", dropout_p=0.1),
     #TaskLayer(out_features=128, activation="SiLU", dropout_p=0.1),
     #TaskLayer(out_features=128, activation="SiLU", dropout_p=0.1),
-    TaskLayer(out_features=128, activation="SiLU", dropout_p=0.1),
+    TaskLayer(out_features=64, activation="SiLU", dropout_p=0.1),
 
 ]
 
@@ -147,10 +207,7 @@ tasks = [
 print("Task ids:", [t.id for t in tasks])
 tfboard.filename_suffix = "_".join([t.name for t in tasks])
 
-## Tokenise dataset...
-tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
-#encoded_dataset = common.encodeDataset(dataset, labels, tokenizer, max_length, sent1="Premise", sent2="Conclusion", task_ids=[t.id for t in tasks])
-encoded_dataset = common.encodeDataset(dataset, labels, tokenizer, max_length, sent1=Sentence1, sent2=Sentence2, task_ids=[t.id for t in tasks])
+
 
 
 def instantiate_model(pretrained_model_name, pretrained_model_name2, tasks, freezeLayers=False):
@@ -195,80 +252,85 @@ def model_init(trial=None):
     #exit(0)
     return model
 
+
+## Tokenise dataset...
+tokenizer1 = AutoTokenizer.from_pretrained(pretrained_model_name)
+tokenizer2 = AutoTokenizer.from_pretrained(pretrained_model_name)
+#encoded_dataset = common.encodeDataset(dataset, labels, tokenizer, max_length, sent1="Premise", sent2="Conclusion", task_ids=[t.id for t in tasks])
+encoded_dataset1 = common.encodeDataset(dataset1, labels, tokenizer1, max_length, sent1=Sentence1, sent2=Sentence2, task_ids=[t.id for t in tasks])
+encoded_dataset2 = common.encodeDataset(dataset1, labels, tokenizer2, max_length, sent1=Sentence1, sent2=Sentence2, task_ids=[t.id for t in tasks])
+encoded_dataset = common.encodeDataset(dataset, labels, tokenizer1, max_length, sent1=Sentence1, sent2=Sentence2, task_ids=[t.id for t in tasks])
+encoded_val = common.encodeDataset(datasetval, labels, tokenizer1, max_length, sent1=Sentence1, sent2=Sentence2, task_ids=[t.id for t in tasks])
+
+model_train = model_init()
+
+trainer = Trainer(
+        args=args_pretrain,
+        train_dataset = encoded_dataset1["train"],
+        eval_dataset  = encoded_dataset1["validation"],
+        #train_dataset = encoded_dataset["validation"],
+        #eval_dataset  = encoded_dataset["train"],
+        tokenizer=tokenizer1,
+        compute_metrics=partial(common.compute_metrics, labels=labels, tasks=tasks),
+        model=model_train,
+        callbacks=[tfboard.MTTensorBoardCallback],
+)
+trainer.remove_callback(TensorBoardCallback)
+#common.show_memory("Memory before Training")
+print("############### Training:")
+trainer.train()
+
+trainer = Trainer(
+        args=args_pretrain,
+        train_dataset = encoded_dataset2["train"],
+        eval_dataset  = encoded_dataset2["validation"],
+        #train_dataset = encoded_dataset["validation"],
+        #eval_dataset  = encoded_dataset["train"],
+        tokenizer=tokenizer2,
+        compute_metrics=partial(common.compute_metrics, labels=labels, tasks=tasks),
+        model=model_train,
+        callbacks=[tfboard.MTTensorBoardCallback],
+)
+trainer.remove_callback(TensorBoardCallback)
+#common.show_memory("Memory before Training")
+print("############### Training:")
+trainer.train()
+
 trainer = Trainer(
         args=args,
         train_dataset = encoded_dataset["train"],
         eval_dataset  = encoded_dataset["validation"],
         #train_dataset = encoded_dataset["validation"],
         #eval_dataset  = encoded_dataset["train"],
-        tokenizer=tokenizer,
+        tokenizer=tokenizer1,
         compute_metrics=partial(common.compute_metrics, labels=labels, tasks=tasks),
-        model_init=model_init,
+        model=model_train,
         callbacks=[tfboard.MTTensorBoardCallback],
 )
 trainer.remove_callback(TensorBoardCallback)
-
-#####################################################################################
-### Optuna Hyperparameter search
-#####################################################################################
-
-def optuna_hp_space(trial):
-    # space = {
-    #     "learning_rate": trial.suggest_float("learning_rate", 1e-6, 1, log=True),
-    #     "n_layers": 1,
-    #     "n_units_l0": 256,
-    #     "n_units_l1": 256,
-    #     "n_units_l2": 256,
-    #     "n_units_l3": 256,
-    # }
-    # return space
-    n_layers_min = 1
-    n_layers_max = 1
-    space = {
-        #"n_layers": trial.suggest_int('n_layers', n_layers_min, n_layers_max),
-        "theta": trial.suggest_float("theta", 0, 1)
-        #"learning_rate": trial.suggest_float("learning_rate", 1e-6, 1e-4, log=True),
-        #"per_device_train_batch_size": trial.suggest_categorical("per_device_train_batch_size", [4, 16, 32, 64, 96]),
-    }
-    for i in range(n_layers_min, n_layers_max+1):
-        space[f"n_units_l{i}"] = 0
-
-    #for i in range(space["n_layers"]):
-    #    space[f"n_units_l{i}"] = trial.suggest_int(f"n_units_l{i}", 128, 1024, 128)
-    return space
-
-def compute_objective(metrics: Dict[str, float]) -> float:
-    # print("===========================================================================")
-    # print("==== metrics:", metrics)
-    # print(f"==== Objective: eval_{metric_name}:", metrics[f"eval_{metric_name}"])
-    # print("===========================================================================")
-    TRIAL_SCORES.append(metrics[f"eval_{metric_name}"])
-    if int(metrics["epoch"]) == num_train_epochs:
-        return max(TRIAL_SCORES)
-    return metrics[f"eval_{metric_name}"]
-
-if hperparam_search:
-    study_name = hperparam_search_name  # Unique identifier of the study.
-    storage_name = f"sqlite:///{study_name}.db"
-    best_trial = trainer.hyperparameter_search(
-        direction="maximize",
-        backend="optuna",
-        hp_space=optuna_hp_space,
-        compute_objective=compute_objective,
-        n_trials=100,
-        study_name=study_name,
-        storage=storage_name,
-        load_if_exists = True
-    )
-    print("best_trial:", best_trial)
-    exit(0)
-
 #common.show_memory("Memory before Training")
 print("############### Training:")
 trainer.train()
+
+trainer = Trainer(
+        args=args_pretrain,
+        train_dataset = encoded_val["train"],
+        eval_dataset  = encoded_val["validation"],
+        #train_dataset = encoded_dataset["validation"],
+        #eval_dataset  = encoded_dataset["train"],
+        tokenizer=tokenizer1,
+        compute_metrics=partial(common.compute_metrics, labels=labels, tasks=tasks),
+        model=model_train,
+        callbacks=[tfboard.MTTensorBoardCallback],
+)
+trainer.remove_callback(TensorBoardCallback)
+#common.show_memory("Memory before Training")
+print("############### Training:")
+trainer.train()
+
 #common.show_memory("Memory after Training")
 print("############### Evaluation:")
-common.save_eval_result_df = df_validation
+common.save_eval_result_df = df_val_with_val
 results = trainer.evaluate()
 trainer.save_model(best_output_dir)
 #common.show_memory("Memory after Evaluation")
