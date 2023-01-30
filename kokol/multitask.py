@@ -27,11 +27,16 @@ pretrained_model_name = "roberta-base"
 pretrained_model_name2 = "bert-base-uncased"
 # pretrained_model_name = "bert-large-uncased"
 # pretrained_model_name = "facebook/bart-base"
+perform_train         = True
+perform_evaluation    = True
+perform_test          = True
 learning_rate         = 2e-5
 # learning_rate         = 3e-3
 batch_size            = 16
 metric_name           = "loss"
-num_train_epochs      = 10
+num_train_epochs      = 16
+use_data_augmentation = True
+include_validation_for_train = True
 use_class_weights     = True
 use_pos_weights       = True
 freeze_layers_bert    = False
@@ -63,6 +68,11 @@ df_with_val = pd.concat([df_train, df_validation], ignore_index=True)
 
 df_train_1, df_train_2 = train_test_split(df_train, test_size=0.3)
 df_train_with_val, df_val_with_val = train_test_split(df_with_val, test_size=0.03)
+# Make sure row indexes are re-generated.
+df_train_1.reset_index(drop=True)
+df_train_2.reset_index(drop=True)
+df_train_with_val.reset_index(drop=True)
+df_val_with_val.reset_index(drop=True)
 
 df_train_copy = df_train_with_val.copy()
 #Augment using wordnet
@@ -205,7 +215,8 @@ tasks = [
          loss_pos_weight=None, loss_class_weight=None, task_layers=task_layers, task_layers2=task_layers2),
 ]
 print("Task ids:", [t.id for t in tasks])
-tfboard.filename_suffix = "_".join([t.name for t in tasks])
+tensorbaord_filename_suffix = "_".join([t.name for t in tasks])
+tfboard.filename_suffix = tensorbaord_filename_suffix
 
 
 
@@ -264,6 +275,9 @@ encoded_val = common.encodeDataset(datasetval, labels, tokenizer1, max_length, s
 
 model_train = model_init()
 
+training_count = 1
+tfboard.filename_suffix = tensorbaord_filename_suffix + f"_tr{training_count}"
+
 trainer = Trainer(
         args=args_pretrain,
         train_dataset = encoded_dataset1["train"],
@@ -277,8 +291,11 @@ trainer = Trainer(
 )
 trainer.remove_callback(TensorBoardCallback)
 #common.show_memory("Memory before Training")
-print("############### Training:")
+print(f"############### Training: {training_count}")
 trainer.train()
+
+training_count +=1
+tfboard.filename_suffix = tensorbaord_filename_suffix + f"_tr{training_count}"
 
 trainer = Trainer(
         args=args_pretrain,
@@ -293,8 +310,11 @@ trainer = Trainer(
 )
 trainer.remove_callback(TensorBoardCallback)
 #common.show_memory("Memory before Training")
-print("############### Training:")
+print(f"############### Training: {training_count}")
 trainer.train()
+
+training_count +=1
+tfboard.filename_suffix = tensorbaord_filename_suffix + f"_tr{training_count}"
 
 trainer = Trainer(
         args=args,
@@ -309,8 +329,11 @@ trainer = Trainer(
 )
 trainer.remove_callback(TensorBoardCallback)
 #common.show_memory("Memory before Training")
-print("############### Training:")
+print(f"############### Training: {training_count}")
 trainer.train()
+
+training_count +=1
+tfboard.filename_suffix = tensorbaord_filename_suffix + f"_tr{training_count}"
 
 trainer = Trainer(
         args=args_pretrain,
@@ -325,18 +348,31 @@ trainer = Trainer(
 )
 trainer.remove_callback(TensorBoardCallback)
 #common.show_memory("Memory before Training")
-print("############### Training:")
+print(f"############### Training: {training_count}")
 trainer.train()
 
+training_count +=1
+tfboard.filename_suffix = tensorbaord_filename_suffix + f"_tr{training_count}"
+
 #common.show_memory("Memory after Training")
-print("############### Evaluation:")
-common.save_eval_result_df = df_val_with_val
-results = trainer.evaluate()
-trainer.save_model(best_output_dir)
-#common.show_memory("Memory after Evaluation")
-common.save_eval_result_df = None
-print(results)
-cmd = subprocess.run(["python", "evaluator.py",
-                      "--inputDataset", "evaluationLabels",
-                      "--inputRun", "evaluationResults",
-                      "--outputDataset", "evaluationResults"])
+
+if perform_evaluation:
+    print("############### Evaluation:")
+    common.save_eval_result_df = df_val_with_val
+    common.evaluationResultsFilename = "validation.tsv"
+    results = trainer.evaluate()
+    trainer.save_model(best_output_dir)
+    #common.show_memory("Memory after Evaluation")
+    common.save_eval_result_df = None
+    print(results)
+    # cmd = subprocess.run(["python", "evaluator.py",
+    #                       "--inputDataset", "evaluationLabels",
+    #                       "--inputRun", "evaluationResults",
+    #                       "--outputDataset", "evaluationResults"])
+if perform_test:
+    print("############### Test:")
+    common.save_eval_result_df = df_test
+    common.evaluationResultsFilename = "test.tsv"
+    results = trainer.predict(encoded_dataset["test"])
+    common.save_eval_result_df = None
+
