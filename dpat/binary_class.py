@@ -56,8 +56,6 @@ def load_dataset(selected_label):
 
     return X_train, y_train, X_val, y_val, label_names
 
-
-# Tokenization
 def preprocessing(data, tokenizer, maxlength):
 
     input_ids = []
@@ -72,7 +70,6 @@ def preprocessing(data, tokenizer, maxlength):
     attention_masks = torch.tensor(attention_masks)
 
     return input_ids, attention_masks
-
 
 class BERT(nn.Module):
     def __init__(self, bert):
@@ -89,7 +86,6 @@ class BERT(nn.Module):
         # softmax activation function
         self.softmax = nn.LogSoftmax(dim=1)
 
-
     def forward(self, sent_id, mask):
 
         _, cls_hs = self.bert(sent_id, attention_mask=mask, return_dict=False)
@@ -102,11 +98,10 @@ class BERT(nn.Module):
 
         return out
 
-
 def main():
     # Device Config
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
+    print(device)
     X_train, y_train, X_val, y_val, label_names = load_dataset('Self-direction: thought')
     # y_train, y_val = y_train.apply(lambda y: float(y)), y_val.apply(lambda y: float(y))
 
@@ -129,6 +124,7 @@ def main():
     val_inputs, val_masks = preprocessing(X_val, tokenizer, MAX_SEQUENCE_LEN)
 
     # Prepair DataLoaders
+    print(y_train.dtypes)
     train_labels, val_labels = torch.tensor(y_train), torch.tensor(y_val)
 
     train_data = TensorDataset(train_inputs, train_masks, train_labels)
